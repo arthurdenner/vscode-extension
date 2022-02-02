@@ -1,6 +1,8 @@
 import { v4 as uuidv4 } from 'uuid';
+import { IAnalytics } from './analytics/itly';
 import { ISnykApiClient } from './api/apiСlient';
 import { MEMENTO_ANONYMOUS_ID } from './constants/globalState';
+import { ErrorReporter } from './error/errorReporter';
 import { ExtensionContext } from './vscode/extensionContext';
 
 export type UserDto = {
@@ -32,10 +34,13 @@ export class User {
     return this._authenticatedId;
   }
 
-  async identify(apiClient: ISnykApiClient): Promise<void> {
+  async identify(apiClient: ISnykApiClient, analytics: IAnalytics): Promise<void> {
     const user = await this.userMe(apiClient);
     if (user && user.id) {
       this._authenticatedId = user.id;
+
+      await analytics.identify(this._authenticatedId); // map the anonymousId onto authenticatedId
+      ErrorReporter.identify(this);
     }
   }
 

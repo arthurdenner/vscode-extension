@@ -1,85 +1,83 @@
 import * as vscode from 'vscode';
 import { SNYK_OPEN_BROWSER_COMMAND } from '../../../common/constants/commands';
 import { SNYK_VIEW_SUGGESTION_OSS } from '../../../common/constants/views';
+import { ErrorHandler } from '../../../common/error/errorHandler';
+import { ILog } from '../../../common/logger/interfaces';
 import { getNonce } from '../../../common/views/nonce';
-import { WebviewProvider } from '../../../common/views/webviewProvider';
+import { WebviewPanelSerializer } from '../../../common/views/webviewPanelSerializer';
+import { IWebViewProvider, WebviewProvider } from '../../../common/views/webviewProvider';
 import { ExtensionContext } from '../../../common/vscode/extensionContext';
 import { IVSCodeWindow } from '../../../common/vscode/window';
+import { messages as errorMessages } from '../../messages/error';
 import { OssIssueCommandArg } from '../ossVulnerabilityTreeProvider';
 
-enum SuggestionViewEventMessageType {
+enum OssSuggestionsViewEventMessageType {
   OpenBrowser = 'openBrowser',
 }
 
-type FeaturesViewEventMessage = {
-  type: SuggestionViewEventMessageType;
+type OssSuggestionViewEventMessage = {
+  type: OssSuggestionsViewEventMessageType;
   value: unknown;
 };
 
-// todo: unify interface between oss and snyk code
-export interface IOssSuggestionWebviewProvider {
-  activate(): void;
-  showPanel(vulnerability: OssIssueCommandArg): Promise<void>;
-}
-
-export class OssSuggestionWebviewProvider extends WebviewProvider implements IOssSuggestionWebviewProvider {
-  constructor(protected readonly context: ExtensionContext, private readonly window: IVSCodeWindow) {
-    super(context);
+export class OssSuggestionWebviewProvider extends WebviewProvider<OssIssueCommandArg> {
+  constructor(
+    protected readonly context: ExtensionContext,
+    private readonly window: IVSCodeWindow,
+    protected readonly logger: ILog,
+  ) {
+    super(context, logger);
   }
 
   activate(): void {
     this.context.addDisposables(
-      this.window.registerWebviewPanelSerializer(SNYK_VIEW_SUGGESTION_OSS, new SuggestionSerializer(this)),
+      this.window.registerWebviewPanelSerializer(SNYK_VIEW_SUGGESTION_OSS, new WebviewPanelSerializer(this)),
     );
   }
 
   async showPanel(vulnerability: OssIssueCommandArg): Promise<void> {
-    if (
-      !vscode.window.activeTextEditor?.viewColumn ||
-      !this.panel?.viewColumn ||
-      this.panel.viewColumn !== vscode.ViewColumn.Two
-    ) {
-      // workaround for: https://github.com/microsoft/vscode/issues/71608
-      // when resolved, we can set showPanel back to sync execution.
-      await vscode.commands.executeCommand('workbench.action.focusSecondEditorGroup');
-    }
+    try {
+      await this.focusSecondEditorGroup();
 
-    if (this.panel) {
-      this.panel.reveal(vscode.ViewColumn.Two, true);
-    } else {
-      this.panel = vscode.window.createWebviewPanel(
-        SNYK_VIEW_SUGGESTION_OSS,
-        'Snyk OSS Vulnerability',
-        {
-          viewColumn: vscode.ViewColumn.Two,
-          preserveFocus: true,
+      if (this.panel) {
+        this.panel.reveal(vscode.ViewColumn.Two, true);
+      } else {
+        this.panel = vscode.window.createWebviewPanel(
+          SNYK_VIEW_SUGGESTION_OSS,
+          'Snyk OSS Vulnerability',
+          {
+            viewColumn: vscode.ViewColumn.Two,
+            preserveFocus: true,
+          },
+          {
+            enableScripts: true,
+            localResourceRoots: [this.context.getExtensionUri()],
+          },
+        );
+      }
+
+      this.panel.webview.html = this.getHtmlForWebview(this.panel.webview);
+
+      void this.panel.webview.postMessage({ type: 'set', args: vulnerability });
+
+      this.panel.onDidDispose(this.onPanelDispose.bind(this), null, this.disposables);
+      this.panel.webview.onDidReceiveMessage(
+        (data: OssSuggestionViewEventMessage) => {
+          switch (data.type) {
+            case OssSuggestionsViewEventMessageType.OpenBrowser:
+              void vscode.commands.executeCommand(SNYK_OPEN_BROWSER_COMMAND, data.value);
+              break;
+            default:
+              break;
+          }
         },
-        {
-          enableScripts: true,
-          localResourceRoots: [this.context.getExtensionUri()],
-        },
+        null,
+        this.disposables,
       );
+      this.panel.onDidChangeViewState(this.checkVisibility.bind(this), null, this.disposables);
+    } catch (e) {
+      ErrorHandler.handle(e, this.logger, errorMessages.suggestionViewShowFailed);
     }
-
-    this.panel.webview.html = this.getHtmlForWebview(this.panel.webview);
-
-    void this.panel.webview.postMessage({ type: 'set', args: vulnerability });
-
-    this.panel.onDidDispose(this.onPanelDispose.bind(this), null, this.disposables);
-    this.panel.webview.onDidReceiveMessage(
-      (data: FeaturesViewEventMessage) => {
-        switch (data.type) {
-          case SuggestionViewEventMessageType.OpenBrowser:
-            void vscode.commands.executeCommand(SNYK_OPEN_BROWSER_COMMAND, data.value);
-            break;
-          default:
-            break;
-        }
-      },
-      null,
-      this.disposables,
-    );
-    this.panel.onDidChangeViewState(this.checkVisibility.bind(this), null, this.disposables);
   }
 
   protected getHtmlForWebview(webview: vscode.Webview): string {
@@ -90,7 +88,7 @@ export class OssSuggestionWebviewProvider extends WebviewProvider implements IOs
       ['dark-medium-severity', 'svg'],
       ['dark-low-severity', 'svg'],
     ].reduce((accumulator: Record<string, string>, [name, ext]) => {
-      const uri = this.getWebViewUri('media', 'images', `${name}.${ext}`); // todo move to media folder
+      const uri = this.getWebViewUri('media', 'images', `${name}.${ext}`);
       if (!uri) throw new Error('Image missing.');
       accumulator[name] = uri.toString();
       return accumulator;
@@ -168,19 +166,5 @@ export class OssSuggestionWebviewProvider extends WebviewProvider implements IOs
 				<script nonce="${nonce}" src="${scriptUri}"></script>
 			</body>
 			</html>`;
-  }
-}
-
-class SuggestionSerializer implements vscode.WebviewPanelSerializer {
-  constructor(private readonly suggestionProvider: OssSuggestionWebviewProvider) {}
-
-  async deserializeWebviewPanel(webviewPanel: vscode.WebviewPanel, state: OssIssueCommandArg): Promise<void> {
-    if (!state) {
-      webviewPanel.dispose();
-      return Promise.resolve();
-    }
-
-    this.suggestionProvider.restorePanel(webviewPanel);
-    return this.suggestionProvider.showPanel(state);
   }
 }

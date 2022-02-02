@@ -6,7 +6,9 @@ Snyk’s Vulnerability Scanner provided by <a href="https://snyk.io/">Snyk.io</a
 - **Code Security** - security weaknesses identified in your own code.
 - **Code Quality** - code quality issues in your own code.
 
-# Table of Contents
+**Snyk detects the critical vulnerability Log4Shell ([CVE-2021-44228](https://security.snyk.io/vuln/SNYK-JAVA-ORGAPACHELOGGINGLOG4J-2314720)), which was found in the open source Java library log4j-core - a component of one of the most popular Java logging frameworks, Log4J. The vulnerability was categorized as Critical with a CVSS score of 10, and with a mature exploit level.**
+
+## Table of Contents
 
 - [Introduction](#introduction)
   - [Supported languages](#supported-languages)
@@ -137,7 +139,7 @@ You can filter the issues by setting the severities you want to see using the `s
 
 ![Severity filters](media/images/readme/severity-filters.png)
 
-### Editor window
+### Snyk Code editor window
 
 The editor window (in the middle of the results screen) shows the code that is inspected. This ensures that when you are
 inspecting a Snyk issue, you always have the code context close to the issue.
@@ -158,15 +160,41 @@ example variable names of your code and the line numbers in red. You can also se
 
 We also include a feedback mechanism to report false positives so that others do not see the same issue.
 
-### Snyk OSS vulnerability window
+### Snyk Open Source editor window
+
+Editor window shows security vulnerabilities in open source modules while you code in JavaScript, TypeScript and HTML. Receive feedback in-line with your code, such as how many vulnerabilities a module contains that you are importing. Editor surfaces only top-level dependency vulnerabilities, for the full list of vulnerabilities refer to the side panel.
+
+- Find security vulnerabilities in the npm packages you import: see the number of known vulnerabilities in your imported npm packages as soon as you require them:
+  ![Snyk Open Source in JavaScript and TypeScript files](media/images/readme/oss-editor-vulnerability-count.png)
+- Code inline vulnerability counts are also shown in your `package.json` file:
+  ![Snyk Open Source 'package.json' vulnerability count](media/images/readme/oss-editor-pjson.png)
+- Find security vulnerabilities in your JavaScript packages from well-known CDNs: the extension scans any HTML files in your projects and displays vulnerability information about the modules you include from your favorite CDN.
+
+  - Currently supported CDN's:
+    - unpkg.com
+    - ajax.googleapis.com
+    - cdn.jsdelivr.net
+    - cdnjs.cloudflare.com
+    - code.jquery.com
+    - maxcdn.bootstrapcdn.com
+    - yastatic.net
+    - ajax.aspnetcdn.com
+
+  ![Snyk Open Source HTML files vulnerability count](media/images/readme/oss-editor-html.png)
+
+You can navigate to the most severe vulnerability by triggering the provided code actions. This opens [a vulnerability window](#snyk-open-source-vulnerability-window) to show more details:
+
+![Snyk Open Source code action](media/images/readme/oss-editor-show-vulnerability.png)
+
+### Snyk Open Source vulnerability window
 
 ![Snyk Open Source analysis results](media/images/readme/oss-example.png)
 
 OSS vulnerability tab shows information about the vulnerable module.
 
 - Links to external resources (CVE, CWE, Snyk Vulnerability DB) to explain the vulnerability in more detail.
-- Displays CVSS score and exploit maturity.
-- Provides detailed path on how vulnerability is introduced to the system.
+- Displays CVSS score and [exploit maturity](https://docs.snyk.io/features/fixing-and-prioritizing-issues/issue-management/evaluating-and-prioritizing-vulnerabilities).
+- Provides a detailed path on how vulnerability is introduced to the system.
 - Shows summary of the vulnerability together with the remediation advice to fix it.
 
 ## Extension Configuration

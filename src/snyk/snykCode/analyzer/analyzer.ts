@@ -2,10 +2,12 @@ import { AnalysisResultLegacy, FilePath, FileSuggestion } from '@snyk/code-clien
 import * as vscode from 'vscode';
 import { IExtension } from '../../base/modules/interfaces';
 import { IAnalytics } from '../../common/analytics/itly';
+import { ISnykCodeErrorHandler } from '../../common/error/snykCodeErrorHandler';
 import { ILog } from '../../common/logger/interfaces';
-import { errorsLogs } from '../../common/messages/errorsServerLogMessages';
+import { errorsLogs } from '../../common/messages/errors';
 import { HoverAdapter } from '../../common/vscode/hover';
 import { IVSCodeLanguages } from '../../common/vscode/languages';
+import { Disposable } from '../../common/vscode/types';
 import { DisposableCodeActionsProvider } from '../codeActions/disposableCodeActionsProvider';
 import {
   DIAGNOSTICS_CODE_QUALITY_COLLECTION_NAME,
@@ -26,12 +28,13 @@ import {
   createIssueRelatedInformation,
   createSnykSeveritiesMap,
   findCompleteSuggestion,
-  findSuggestionByMessage,
   isSecurityTypeSuggestion,
   updateFileReviewResultsPositions,
 } from '../utils/analysisUtils';
 
 class SnykCodeAnalyzer implements ISnykCodeAnalyzer {
+  protected disposables: Disposable[] = [];
+
   private SEVERITIES: {
     [key: number]: { name: vscode.DiagnosticSeverity; show: boolean };
   };
@@ -39,34 +42,46 @@ class SnykCodeAnalyzer implements ISnykCodeAnalyzer {
   public readonly codeSecurityReview: vscode.DiagnosticCollection | undefined;
   private analysisResults: ISnykCodeResult;
 
-  public constructor(readonly logger: ILog, readonly languages: IVSCodeLanguages, readonly analytics: IAnalytics) {
+  private readonly diagnosticSuggestion = new Map<vscode.Diagnostic, ICodeSuggestion>();
+
+  public constructor(
+    readonly logger: ILog,
+    readonly languages: IVSCodeLanguages,
+    readonly analytics: IAnalytics,
+    private readonly errorHandler: ISnykCodeErrorHandler,
+  ) {
     this.SEVERITIES = createSnykSeveritiesMap();
     this.codeSecurityReview = vscode.languages.createDiagnosticCollection(DIAGNOSTICS_CODE_SECURITY_COLLECTION_NAME);
     this.codeQualityReview = vscode.languages.createDiagnosticCollection(DIAGNOSTICS_CODE_QUALITY_COLLECTION_NAME);
 
-    new DisposableCodeActionsProvider(
+    this.disposables.push(
       this.codeSecurityReview,
-      {
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-        findSuggestion: this.findSuggestion.bind(this),
-      },
-      analytics,
-    );
-    new DisposableCodeActionsProvider(
       this.codeQualityReview,
-      {
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-        findSuggestion: this.findSuggestion.bind(this),
-      },
-      analytics,
-    );
-    new DisposableHoverProvider(this, logger, languages, analytics).register(
-      this.codeSecurityReview,
-      new HoverAdapter(),
-    );
-    new DisposableHoverProvider(this, logger, languages, analytics).register(
-      this.codeQualityReview,
-      new HoverAdapter(),
+
+      new DisposableCodeActionsProvider(
+        this.codeSecurityReview,
+        {
+          // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+          findSuggestion: this.findSuggestion.bind(this),
+        },
+        analytics,
+      ),
+      new DisposableCodeActionsProvider(
+        this.codeQualityReview,
+        {
+          // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+          findSuggestion: this.findSuggestion.bind(this),
+        },
+        analytics,
+      ),
+      new DisposableHoverProvider(this, logger, languages, analytics).register(
+        this.codeSecurityReview,
+        new HoverAdapter(),
+      ),
+      new DisposableHoverProvider(this, logger, languages, analytics).register(
+        this.codeQualityReview,
+        new HoverAdapter(),
+      ),
     );
   }
 
@@ -82,6 +97,17 @@ class SnykCodeAnalyzer implements ISnykCodeAnalyzer {
     return this.analysisResults;
   }
 
+  dispose(): void {
+    this.diagnosticSuggestion.clear();
+
+    while (this.disposables.length) {
+      const disposable = this.disposables.pop();
+      if (disposable) {
+        disposable.dispose();
+      }
+    }
+  }
+
   public getFullSuggestion(
     suggestionId: string,
     uri: vscode.Uri,
@@ -94,8 +120,8 @@ class SnykCodeAnalyzer implements ISnykCodeAnalyzer {
     return checkCompleteSuggestion(this.analysisResults, suggestion);
   }
 
-  public findSuggestion(suggestionName: string): ICodeSuggestion | undefined {
-    return findSuggestionByMessage(this.analysisResults, suggestionName);
+  public findSuggestion(diagnostic: vscode.Diagnostic): ICodeSuggestion | undefined {
+    return this.diagnosticSuggestion.get(diagnostic);
   }
 
   private createIssueDiagnosticInfo({
@@ -139,13 +165,15 @@ class SnykCodeAnalyzer implements ISnykCodeAnalyzer {
       const isSecurityType = suggestions[issue].isSecurityType;
       const issueList = isSecurityType ? securityIssues : qualityIssues;
       for (const issuePositions of fileIssuesList[issue]) {
-        issueList.push(
-          this.createIssueDiagnosticInfo({
-            issuePositions,
-            suggestion: suggestions[issue],
-            fileUri,
-          }),
-        );
+        const suggestion = suggestions[issue];
+        const diagnostic = this.createIssueDiagnosticInfo({
+          issuePositions,
+          suggestion,
+          fileUri,
+        });
+
+        this.diagnosticSuggestion.set(diagnostic, suggestion);
+        issueList.push(diagnostic);
       }
     }
 
@@ -158,6 +186,7 @@ class SnykCodeAnalyzer implements ISnykCodeAnalyzer {
     }
     this.codeSecurityReview.clear();
     this.codeQualityReview.clear();
+    this.diagnosticSuggestion.clear();
 
     const { files, suggestions } = this.analysisResults;
     for (const filePath in files) {
@@ -206,7 +235,7 @@ class SnykCodeAnalyzer implements ISnykCodeAnalyzer {
         this.codeQualityReview?.set(vscode.Uri.file(updatedFile.fullPath), [...qualityIssues]);
       }
     } catch (err) {
-      await extension.processError(err, {
+      await this.errorHandler.processError(err, {
         message: errorsLogs.updateReviewPositions,
         bundleId: extension.snykCode.remoteBundle.fileBundle.bundleHash,
         data: {

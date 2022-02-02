@@ -4,8 +4,10 @@ import * as vscode from 'vscode';
 import { IAuthenticationService } from '../../base/services/authenticationService';
 import { ScanModeService } from '../../base/services/scanModeService';
 import { ISnykCodeService } from '../../snykCode/codeService';
+import { FalsePositive } from '../../snykCode/falsePositive/falsePositive';
 import { createDCIgnore } from '../../snykCode/utils/ignoreFileUtils';
 import { IssueUtils } from '../../snykCode/utils/issueUtils';
+import { FalsePositiveWebviewModel } from '../../snykCode/views/falsePositive/falsePositiveWebviewProvider';
 import { CodeIssueCommandArg } from '../../snykCode/views/interfaces';
 import { capitalizeOssSeverity } from '../../snykOss/ossResult';
 import { OssService } from '../../snykOss/services/ossService';
@@ -15,13 +17,14 @@ import {
   SNYK_COPY_AUTH_LINK_COMMAND,
   SNYK_LOGIN_COMMAND,
   SNYK_OPEN_BROWSER_COMMAND,
-  SNYK_OPEN_LOCAL_COMMAND,
   VSCODE_GO_TO_SETTINGS_COMMAND,
 } from '../constants/commands';
 import { COMMAND_DEBOUNCE_INTERVAL, IDE_NAME, SNYK_NAME_EXTENSION, SNYK_PUBLISHER } from '../constants/general';
+import { ErrorHandler } from '../error/errorHandler';
 import { ILog } from '../logger/interfaces';
 import { IOpenerService } from '../services/openerService';
-import { OpenCommandIssueType, OpenIssueCommandArg } from './types';
+import { IVSCodeWorkspace } from '../vscode/workspace';
+import { OpenCommandIssueType, OpenIssueCommandArg, ReportFalsePositiveCommandArg } from './types';
 
 export class CommandController {
   private debouncedCommands: Record<string, _.DebouncedFunc<(...args: unknown[]) => Promise<unknown>>> = {};
@@ -32,6 +35,7 @@ export class CommandController {
     private snykCode: ISnykCodeService,
     private ossService: OssService,
     private scanModeService: ScanModeService,
+    private workspace: IVSCodeWorkspace,
     private logger: ILog,
     private analytics: IAnalytics,
   ) {}
@@ -48,9 +52,12 @@ export class CommandController {
     return this.executeCommand(SNYK_LOGIN_COMMAND, this.authService.initiateLogin.bind(this.authService, getIpFamily));
   }
 
-  openLocal(path: vscode.Uri, range?: vscode.Range): void {
-    // todo: add error reporting
-    void vscode.window.showTextDocument(path, { viewColumn: vscode.ViewColumn.One, selection: range });
+  async openLocal(path: vscode.Uri, range?: vscode.Range): Promise<void> {
+    try {
+      await vscode.window.showTextDocument(path, { viewColumn: vscode.ViewColumn.One, selection: range });
+    } catch (e) {
+      ErrorHandler.handle(e, this.logger);
+    }
   }
 
   openSettings(): void {
@@ -73,17 +80,16 @@ export class CommandController {
   async openIssueCommand(arg: OpenIssueCommandArg): Promise<void> {
     if (arg.issueType == OpenCommandIssueType.CodeIssue) {
       const issue = arg.issue as CodeIssueCommandArg;
-      const suggestion = this.snykCode.analyzer.findSuggestion(issue.message);
+      const suggestion = this.snykCode.analyzer.findSuggestion(issue.diagnostic);
       if (!suggestion) return;
       // Set openUri = null to avoid opening the file (e.g. in the ActionProvider)
-      if (issue.openUri !== null)
-        await vscode.commands.executeCommand(
-          SNYK_OPEN_LOCAL_COMMAND,
-          issue.openUri || issue.uri,
-          issue.openRange || issue.range,
-        );
+      if (issue.openUri !== null) await this.openLocal(issue.openUri || issue.uri, issue.openRange || issue.range);
 
-      this.snykCode.suggestionProvider.show(suggestion.id, issue.uri, issue.range);
+      try {
+        this.snykCode.suggestionProvider.show(suggestion.id, issue.uri, issue.range);
+      } catch (e) {
+        ErrorHandler.handle(e, this.logger);
+      }
 
       this.analytics.logIssueInTreeIsClicked({
         ide: IDE_NAME,
@@ -102,6 +108,35 @@ export class CommandController {
         severity: capitalizeOssSeverity(issue.severity),
       });
     }
+  }
+
+  async reportFalsePositive(arg: ReportFalsePositiveCommandArg): Promise<void> {
+    const suggestion = arg.suggestion;
+    if (!suggestion.markers || suggestion.markers.length === 0) {
+      return;
+    }
+
+    let content = '';
+    try {
+      const falsePositive = new FalsePositive(this.workspace, suggestion.uri, suggestion.markers);
+      content = await falsePositive.getContent();
+    } catch (e) {
+      ErrorHandler.handle(e, this.logger);
+    }
+
+    if (!content) {
+      return; // don't show panel, if no content available.
+    }
+
+    const model: FalsePositiveWebviewModel = {
+      title: suggestion.title.length ? suggestion.title : suggestion.message,
+      content,
+      cwe: suggestion.cwe,
+      suggestionType: suggestion.isSecurityType ? 'Vulnerability' : 'Issue',
+      severity: IssueUtils.severityAsText(suggestion.severity).toLowerCase(),
+    };
+
+    await this.snykCode.falsePositiveProvider.showPanel(model);
   }
 
   setScanMode(mode: string): Promise<void> {
@@ -123,7 +158,7 @@ export class CommandController {
           try {
             return await fn(...args);
           } catch (error) {
-            // todo: add error reporting
+            ErrorHandler.handle(error, this.logger);
             return Promise.resolve();
           }
         },

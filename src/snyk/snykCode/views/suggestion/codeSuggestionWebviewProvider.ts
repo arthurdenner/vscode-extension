@@ -1,36 +1,48 @@
 import * as vscode from 'vscode';
-import { IExtension } from '../../../base/modules/interfaces';
+import { IConfiguration } from '../../../common/configuration/configuration';
 import {
   SNYK_IGNORE_ISSUE_COMMAND,
   SNYK_OPEN_BROWSER_COMMAND,
   SNYK_OPEN_LOCAL_COMMAND,
+  SNYK_REPORT_FALSE_POSITIVE_COMMAND,
 } from '../../../common/constants/commands';
 import { SNYK_VIEW_SUGGESTION_CODE } from '../../../common/constants/views';
-import { errorsLogs } from '../../../common/messages/errorsServerLogMessages';
+import { ErrorHandler } from '../../../common/error/errorHandler';
+import { ILog } from '../../../common/logger/interfaces';
 import { getNonce } from '../../../common/views/nonce';
-import { WebviewProvider } from '../../../common/views/webviewProvider';
+import { WebviewPanelSerializer } from '../../../common/views/webviewPanelSerializer';
+import { IWebViewProvider, WebviewProvider } from '../../../common/views/webviewProvider';
+import { ExtensionContext } from '../../../common/vscode/extensionContext';
+import { IVSCodeWindow } from '../../../common/vscode/window';
 import { WEBVIEW_PANEL_QUALITY_TITLE, WEBVIEW_PANEL_SECURITY_TITLE } from '../../constants/analysis';
-import { completeFileSuggestionType } from '../../interfaces';
+import { completeFileSuggestionType, ISnykCodeAnalyzer } from '../../interfaces';
+import { messages as errorMessages } from '../../messages/error';
 import { createIssueCorrectRange, getVSCodeSeverity } from '../../utils/analysisUtils';
+import { FalsePositiveWebviewModel } from '../falsePositive/falsePositiveWebviewProvider';
 import { ICodeSuggestionWebviewProvider } from '../interfaces';
 
-export class CodeSuggestionWebviewProvider extends WebviewProvider implements ICodeSuggestionWebviewProvider {
-  private extension: IExtension | undefined;
+export class CodeSuggestionWebviewProvider extends WebviewProvider<completeFileSuggestionType> implements ICodeSuggestionWebviewProvider {
   // For consistency reasons, the single source of truth for the current suggestion is the
   // panel state. The following field is only used in
   private suggestion: completeFileSuggestionType | undefined;
 
-  activate(extension: IExtension): void {
-    this.extension = extension;
-    vscode.window.registerWebviewPanelSerializer(SNYK_VIEW_SUGGESTION_CODE, new SuggestionSerializer(this));
+  constructor(
+    private readonly configuration: IConfiguration,
+    private readonly analyzer: ISnykCodeAnalyzer,
+    private readonly window: IVSCodeWindow,
+    private readonly falsePositiveProvider: IWebViewProvider<FalsePositiveWebviewModel>,
+    protected readonly context: ExtensionContext,
+    protected readonly logger: ILog,
+  ) {
+    super(context, logger);
+  }
+
+  activate(): void {
+    this.window.registerWebviewPanelSerializer(SNYK_VIEW_SUGGESTION_CODE, new WebviewPanelSerializer(this));
   }
 
   show(suggestionId: string, uri: vscode.Uri, position: vscode.Range): void {
-    if (!this.extension) {
-      this.disposePanel();
-      return;
-    }
-    const suggestion = this.extension.snykCode.analyzer.getFullSuggestion(suggestionId, uri, position); // todo: work with snykCode dep, instead of the whole extension
+    const suggestion = this.analyzer.getFullSuggestion(suggestionId, uri, position);
     if (!suggestion) {
       this.disposePanel();
       return;
@@ -40,22 +52,15 @@ export class CodeSuggestionWebviewProvider extends WebviewProvider implements IC
   }
 
   checkCurrentSuggestion(): void {
-    if (!this.panel || !this.suggestion || !this.extension) return;
-    const found = this.extension.snykCode.analyzer.checkFullSuggestion(this.suggestion);
+    if (!this.panel || !this.suggestion) return;
+    const found = this.analyzer.checkFullSuggestion(this.suggestion);
     if (!found) this.disposePanel();
   }
 
   async showPanel(suggestion: completeFileSuggestionType): Promise<void> {
     try {
-      if (
-        !vscode.window.activeTextEditor?.viewColumn ||
-        !this.panel?.viewColumn ||
-        this.panel.viewColumn !== vscode.ViewColumn.Two
-      ) {
-        // workaround for: https://github.com/microsoft/vscode/issues/71608
-        // when resolved, we can set showPanel back to sync execution.
-        await vscode.commands.executeCommand('workbench.action.focusSecondEditorGroup');
-      }
+      await this.focusSecondEditorGroup();
+
       if (this.panel) {
         this.panel.title = this.getTitle(suggestion);
         this.panel.reveal(vscode.ViewColumn.Two, true);
@@ -76,7 +81,7 @@ export class CodeSuggestionWebviewProvider extends WebviewProvider implements IC
 
       this.panel.webview.html = this.getHtmlForWebview(this.panel.webview);
 
-      void this.panel.webview.postMessage({ type: 'set', args: suggestion });
+      await this.panel.webview.postMessage({ type: 'set', args: suggestion });
 
       this.panel.onDidDispose(this.onPanelDispose.bind(this), null, this.disposables);
       this.panel.onDidChangeViewState(this.checkVisibility.bind(this), undefined, this.disposables);
@@ -84,15 +89,21 @@ export class CodeSuggestionWebviewProvider extends WebviewProvider implements IC
       this.panel.webview.onDidReceiveMessage(this.handleMessage.bind(this), undefined, this.disposables);
       this.suggestion = suggestion;
     } catch (e) {
-      if (!this.extension) return;
-      void this.extension.processError(e, {
-        message: errorsLogs.suggestionView,
-      });
+      ErrorHandler.handle(e, this.logger, errorMessages.suggestionViewShowFailed);
     }
   }
 
+  disposePanel(): void {
+    this.falsePositiveProvider?.disposePanel();
+    super.disposePanel();
+  }
+
+  protected onPanelDispose(): void {
+    this.falsePositiveProvider?.disposePanel();
+    super.onPanelDispose();
+  }
+
   private async handleMessage(message: any) {
-    if (!this.extension) return;
     try {
       const { type, args } = message;
       switch (type) {
@@ -124,8 +135,9 @@ export class CodeSuggestionWebviewProvider extends WebviewProvider implements IC
           this.panel?.dispose();
           break;
         }
-        case 'sendFeedback': {
-          this.sendFeedback({ data: args });
+        case 'openFalsePositive': {
+          const { suggestion } = args as { suggestion: completeFileSuggestionType };
+          await this.openFalsePositiveCode(suggestion);
           break;
         }
         default: {
@@ -133,22 +145,14 @@ export class CodeSuggestionWebviewProvider extends WebviewProvider implements IC
         }
       }
     } catch (e) {
-      void this.extension.processError(e, {
-        message: errorsLogs.suggestionViewMessage,
-        data: { message },
-      });
+      ErrorHandler.handle(e, this.logger, errorMessages.suggestionViewMessageHandlingFailed(message));
     }
   }
 
-  private sendFeedback(data: { [key: string]: any } = {}) {
-    console.debug(data);
-    // await reportEvent({
-    //   baseURL: configuration.baseURL,
-    //   type: 'suggestionFeedback',
-    //   source: configuration.source,
-    //   ...(configuration.token && { sessionToken: configuration.token }),
-    //   ...data,
-    // });
+  private async openFalsePositiveCode(suggestion: completeFileSuggestionType): Promise<void> {
+    await vscode.commands.executeCommand(SNYK_REPORT_FALSE_POSITIVE_COMMAND, {
+      suggestion,
+    });
   }
 
   private getTitle(suggestion: completeFileSuggestionType): string {
@@ -162,9 +166,7 @@ export class CodeSuggestionWebviewProvider extends WebviewProvider implements IC
       ['icon-code', 'svg'],
       ['icon-github', 'svg'],
       ['icon-like', 'svg'],
-      ['light-icon-info', 'svg'],
       ['dark-high-severity', 'svg'],
-      ['light-icon-warning', 'svg'],
       ['dark-medium-severity', 'svg'],
       ['light-icon-critical', 'svg'],
       ['dark-low-severity', 'svg'],
@@ -192,7 +194,9 @@ export class CodeSuggestionWebviewProvider extends WebviewProvider implements IC
   <head>
       <meta charset="UTF-8">
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource}; img-src ${webview.cspSource} https:; script-src 'nonce-${nonce}';">
+      <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource}; img-src ${
+      webview.cspSource
+    } https:; script-src 'nonce-${nonce}';">
 
       <link href="${styleUri}" rel="stylesheet">
       <link href="${styleVSCodeUri}" rel="stylesheet">
@@ -212,7 +216,9 @@ export class CodeSuggestionWebviewProvider extends WebviewProvider implements IC
           <div id="title" class="suggestion-text"></div>
           <div class="suggestion-links">
             <div id="navigateToIssue" class="clickable">
-              <img class="icon" src="${images['icon-lines']}" /> This <span class="issue-type">issue</span> happens on line <span id="line-position"></span>
+              <img class="icon" src="${
+                images['icon-lines']
+              }" /> This <span class="issue-type">issue</span> happens on line <span id="line-position"></span>
             </div>
             <div id="lead-url" class="clickable hidden">
               <img class="icon" src="${images['icon-external']}" /> More info
@@ -239,69 +245,30 @@ export class CodeSuggestionWebviewProvider extends WebviewProvider implements IC
           </div>
           <div id="example"></div>
         </section>
-        <section class="feedback-section delimiter-top">
-          <div id="ignore-section">
-            <div id="ignore-top">Do you want to hide this suggestion from the results?</div>
-            <div class="ignore-actions row">
+        <section class="delimiter-top">
+          <div id="actions-section">
+            <div class="actions row">
+              ${
+                this.configuration.getPreviewFeatures().reportFalsePositives
+                  ? `
               <button id="ignore-line-issue" class="button">Ignore on line <span id="line-position2"></span></button>
               <button id="ignore-file-issue" class="button">Ignore in this file</button>
+
+              <div class="report-fp-actions">
+                <button id="report-fp" class="button">Report false positive</button>
+              </div>
+              `
+                  : `
+              <button id="ignore-line-issue" class="button">Ignore on line <span id="line-position2"></span></button>
+              <button id="ignore-file-issue" class="button">Ignore in this file</button>
+              `
+              }
             </div>
           </div>
-          <!--
-          <div id="feedback-close">
-            <div class="row between clickable">
-              <span>A false positive? Helpful? Let us know here</span>
-              <div class="arrow">»</div>
-            </div>
-          </div>
-          <div id="feedback-open" class="hidden">
-            <div>
-              Feedback
-              <label id="feedback-fp" class="false-positive">
-                <input type="checkbox" id="feedback-checkbox">
-                False postive
-                <img id="false-positive" class="icon" src="${images['light-icon-info']}"></img>
-              </label>
-            </div>
-            <div>
-              <textarea id="feedback-textarea" rows="8" placeholder="Send us your feedback and comments for this suggestion - we love feedback!"></textarea>
-            </div>
-            <div id="feedback-disclaimer">* This form will not send any of your code</div>
-            <div class="row center hidden">
-              <img id="feedback-dislike" class="icon arrow down" src="${images['icon-like']}"></img>
-              <img id="feedback-like" class="icon arrow" src="${images['icon-like']}"></img>
-            </div>
-            <div class="row feedback-actions">
-              <div id="feedback-cancel" class="button"> Cancel </div>
-              <div id="feedback-send" class="button disabled"> Send Feedback </div>
-            </div>
-          </div>
-          <div id="feedback-sent" class="hidden">
-            <div class="row center font-blue">Thank you for your feedback!</div>
-          </div>
-          -->
         </section>
       </div>
     <script nonce="${nonce}" src="${scriptUri}"></script>
   </body>
   </html>`;
-  }
-}
-
-class SuggestionSerializer implements vscode.WebviewPanelSerializer {
-  private suggestionProvider: CodeSuggestionWebviewProvider;
-  constructor(suggestionProvider: CodeSuggestionWebviewProvider) {
-    this.suggestionProvider = suggestionProvider;
-  }
-
-  async deserializeWebviewPanel(webviewPanel: vscode.WebviewPanel, state: completeFileSuggestionType): Promise<void> {
-    // `state` is the state persisted using `setState` inside the webview
-    console.log(`Snyk: Restoring webview state: ${state}`);
-    if (!state) {
-      webviewPanel.dispose();
-      return Promise.resolve();
-    }
-    this.suggestionProvider.restorePanel(webviewPanel);
-    return this.suggestionProvider.showPanel(state);
   }
 }

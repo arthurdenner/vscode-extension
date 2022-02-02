@@ -1,13 +1,20 @@
 import * as vscode from 'vscode';
+import { ILog } from '../logger/interfaces';
 import { Logger } from '../logger/logger';
 import { ExtensionContext } from '../vscode/extensionContext';
 
-export abstract class WebviewProvider {
+export interface IWebViewProvider<ViewModel> {
+  activate(): void;
+  disposePanel(): void;
+  showPanel(suggestion: ViewModel): Promise<void>;
+}
+
+export abstract class WebviewProvider<ViewModel> implements IWebViewProvider<ViewModel> {
   protected disposables: vscode.Disposable[] = [];
 
   protected panel?: vscode.WebviewPanel;
 
-  constructor(protected readonly context: ExtensionContext) {}
+  constructor(protected readonly context: ExtensionContext, protected readonly logger: ILog) {}
 
   protected getWebViewUri(...pathSegments: string[]): vscode.Uri | undefined {
     return this.panel?.webview.asWebviewUri(vscode.Uri.joinPath(this.context.getExtensionUri(), ...pathSegments));
@@ -18,7 +25,15 @@ export abstract class WebviewProvider {
     this.panel = panel;
   }
 
-  protected disposePanel(): void {
+  abstract showPanel(suggestion: ViewModel): Promise<void>;
+
+  protected async focusSecondEditorGroup(): Promise<void> {
+    // workaround for: https://github.com/microsoft/vscode/issues/71608
+    // when resolved, we can set showPanel back to sync execution.
+    await vscode.commands.executeCommand('workbench.action.focusSecondEditorGroup');
+  }
+
+  disposePanel(): void {
     if (this.panel) this.panel.dispose();
   }
 
@@ -45,5 +60,5 @@ export abstract class WebviewProvider {
   }
 
   protected abstract getHtmlForWebview(webview: vscode.Webview): string;
-  protected abstract activate(...params: unknown[]): void;
+  abstract activate(): void;
 }

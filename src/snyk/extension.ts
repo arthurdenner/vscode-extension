@@ -12,6 +12,7 @@ import { CliDownloadService } from './cli/services/cliDownloadService';
 import { Iteratively } from './common/analytics/itly';
 import { CommandController } from './common/commands/commandController';
 import { configuration } from './common/configuration/instance';
+import { SnykConfiguration } from './common/configuration/snykConfiguration';
 import {
   SNYK_COPY_AUTH_LINK_COMMAND,
   SNYK_DCIGNORE_COMMAND,
@@ -21,6 +22,7 @@ import {
   SNYK_OPEN_BROWSER_COMMAND,
   SNYK_OPEN_ISSUE_COMMAND,
   SNYK_OPEN_LOCAL_COMMAND,
+  SNYK_REPORT_FALSE_POSITIVE_COMMAND,
   SNYK_SETMODE_COMMAND,
   SNYK_SETTINGS_COMMAND,
   SNYK_SHOW_OUTPUT_COMMAND,
@@ -36,13 +38,15 @@ import {
   SNYK_VIEW_SUPPORT,
   SNYK_VIEW_WELCOME,
 } from './common/constants/views';
+import { ErrorHandler } from './common/error/errorHandler';
+import { ErrorReporter } from './common/error/errorReporter';
 import { ExperimentService } from './common/experiment/services/experimentService';
 import { Logger } from './common/logger/logger';
-import { errorsLogs } from './common/messages/errorsServerLogMessages';
 import { NotificationService } from './common/services/notificationService';
 import { User } from './common/user';
 import { CodeActionKindAdapter } from './common/vscode/codeAction';
 import { vsCodeComands } from './common/vscode/commands';
+import { vsCodeEnv } from './common/vscode/env';
 import { extensionContext } from './common/vscode/extensionContext';
 import { vsCodeLanguages, VSCodeLanguages } from './common/vscode/languages';
 import { ThemeColorAdapter } from './common/vscode/theme';
@@ -67,12 +71,34 @@ class SnykExtension extends SnykLib implements IExtension {
     extensionContext.setContext(vscodeContext);
     this.context = extensionContext;
 
+    await ErrorReporter.init(
+      configuration,
+      await SnykConfiguration.get(extensionContext.extensionPath, configuration.isDevelopment),
+      extensionContext.extensionPath,
+      vsCodeEnv,
+      Logger,
+    );
+
+    try {
+      await this.initializeExtension(vscodeContext);
+    } catch (e) {
+      ErrorHandler.handle(e, Logger);
+    }
+  }
+
+  private async initializeExtension(vscodeContext: vscode.ExtensionContext) {
     this.user = await User.get(this.context);
 
     this.analytics = new Iteratively(this.user, Logger, configuration.shouldReportEvents, configuration.isDevelopment);
 
-    this.settingsWatcher = new SettingsWatcher(this.analytics);
-    this.notificationService = new NotificationService(vsCodeWindow, vsCodeComands, configuration, this.analytics);
+    this.settingsWatcher = new SettingsWatcher(this.analytics, Logger);
+    this.notificationService = new NotificationService(
+      vsCodeWindow,
+      vsCodeComands,
+      configuration,
+      this.analytics,
+      Logger,
+    );
 
     this.statusBarItem.show();
 
@@ -83,6 +109,7 @@ class SnykExtension extends SnykLib implements IExtension {
       configuration,
       this.analytics,
       Logger,
+      this.snykCodeErrorHandler,
     );
 
     this.snykCode = new SnykCodeService(
@@ -92,10 +119,12 @@ class SnykExtension extends SnykLib implements IExtension {
       this.viewManagerService,
       this.contextService,
       vsCodeWorkspace,
+      vsCodeWindow,
       this.snykApiClient,
       Logger,
       this.analytics,
       new VSCodeLanguages(),
+      this.snykCodeErrorHandler,
     );
 
     this.advisorService = new AdvisorService(this.snykApiClient);
@@ -105,7 +134,7 @@ class SnykExtension extends SnykLib implements IExtension {
       this.context,
       Logger,
       configuration,
-      new OssSuggestionWebviewProvider(this.context, vsCodeWindow),
+      new OssSuggestionWebviewProvider(this.context, vsCodeWindow, Logger),
       vsCodeWorkspace,
       this.viewManagerService,
       this.cliDownloadService,
@@ -120,6 +149,7 @@ class SnykExtension extends SnykLib implements IExtension {
       this.snykCode,
       this.ossService,
       this.scanModeService,
+      vsCodeWorkspace,
       Logger,
       this.analytics,
     );
@@ -190,17 +220,13 @@ class SnykExtension extends SnykLib implements IExtension {
 
     this.editorsWatcher.activate(this);
     this.settingsWatcher.activate(this);
-    this.snykCode.suggestionProvider.activate(this); // todo: wire the same way as OSS
+    this.snykCode.activateWebviewProviders();
     this.ossService.activateSuggestionProvider();
     this.ossService.activateManifestFileWatcher(this);
 
-    void this.notificationService.init(this.processError.bind(this));
+    void this.notificationService.init();
 
-    this.checkAdvancedMode().catch(err =>
-      this.processError(err, {
-        message: errorsLogs.checkAdvancedMode,
-      }),
-    );
+    this.checkAdvancedMode().catch(err => ErrorReporter.capture(err));
 
     await this.analytics.load();
     this.experimentService = new ExperimentService(this.user, this.context, Logger, configuration);
@@ -215,7 +241,6 @@ class SnykExtension extends SnykLib implements IExtension {
       vsCodeWorkspace,
       vsCodeWindow,
       vsCodeLanguages,
-      configuration,
       new ModuleVulnerabilityCountProvider(this.ossService, npmModuleInfoFetchService),
       this.ossService,
       Logger,
@@ -241,6 +266,7 @@ class SnykExtension extends SnykLib implements IExtension {
     this.snykCode.dispose();
     this.ossVulnerabilityCountService.dispose();
     await this.analytics.flush();
+    await ErrorReporter.flush();
   }
 
   private logPluginIsInstalled(): void {
@@ -261,7 +287,6 @@ class SnykExtension extends SnykLib implements IExtension {
   }
 
   private registerCommands(context: vscode.ExtensionContext): void {
-    // todo: move common callbacks to the CommandController, verify if all commands work
     context.subscriptions.push(
       vscode.commands.registerCommand(
         SNYK_OPEN_BROWSER_COMMAND,
@@ -285,7 +310,14 @@ class SnykExtension extends SnykLib implements IExtension {
       vscode.commands.registerCommand(SNYK_SETMODE_COMMAND, this.commandController.setScanMode.bind(this)),
       vscode.commands.registerCommand(SNYK_SETTINGS_COMMAND, this.commandController.openSettings.bind(this)),
       vscode.commands.registerCommand(SNYK_DCIGNORE_COMMAND, this.commandController.createDCIgnore.bind(this)),
-      vscode.commands.registerCommand(SNYK_OPEN_ISSUE_COMMAND, this.commandController.openIssueCommand.bind(this)),
+      vscode.commands.registerCommand(
+        SNYK_OPEN_ISSUE_COMMAND,
+        this.commandController.openIssueCommand.bind(this.commandController),
+      ),
+      vscode.commands.registerCommand(
+        SNYK_REPORT_FALSE_POSITIVE_COMMAND,
+        this.commandController.reportFalsePositive.bind(this.commandController),
+      ),
       vscode.commands.registerCommand(
         SNYK_SHOW_OUTPUT_COMMAND,
         this.commandController.showOutputChannel.bind(this.commandController),

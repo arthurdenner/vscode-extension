@@ -1,25 +1,25 @@
 import * as _ from 'lodash';
 import { firstValueFrom } from 'rxjs';
-import * as vscode from 'vscode';
 import { CliError } from '../../cli/services/cliService';
 import { SupportedAnalysisProperties } from '../../common/analytics/itly';
 import { configuration } from '../../common/configuration/instance';
 import { DEFAULT_SCAN_DEBOUNCE_INTERVAL, IDE_NAME, OSS_SCAN_DEBOUNCE_INTERVAL } from '../../common/constants/general';
 import { SNYK_CONTEXT } from '../../common/constants/views';
+import { ErrorHandler } from '../../common/error/errorHandler';
 import { ExperimentKey } from '../../common/experiment/services/experimentService';
 import { Logger } from '../../common/logger/logger';
-import { errorsLogs } from '../../common/messages/errorsServerLogMessages';
+import { vsCodeWorkspace } from '../../common/vscode/workspace';
 import { OssResult } from '../../snykOss/ossResult';
+import BaseSnykModule from './baseSnykModule';
 import { ISnykLib } from './interfaces';
-import ReportModule from './reportModule';
 
-export default class SnykLib extends ReportModule implements ISnykLib {
+export default class SnykLib extends BaseSnykModule implements ISnykLib {
   private async runFullScan_(manual = false): Promise<void> {
     Logger.info('Starting full scan');
 
     await this.contextService.setContext(SNYK_CONTEXT.ERROR, false);
-    this.resetTransientErrors();
-    this.loadingBadge.setLoadingBadge(false, this);
+    this.snykCodeErrorHandler.resetTransientErrors();
+    this.loadingBadge.setLoadingBadge(false);
 
     try {
       if (!configuration.token) {
@@ -38,10 +38,10 @@ export default class SnykLib extends ReportModule implements ISnykLib {
 
       await this.contextService.setContext(SNYK_CONTEXT.FEATURES_SELECTED, true);
 
-      const workspacePaths = this.getWorkspacePaths();
+      const workspacePaths = vsCodeWorkspace.getWorkspaceFolders();
       await this.setWorkspaceContext(workspacePaths);
 
-      await this.user.identify(this.snykApiClient);
+      await this.user.identify(this.snykApiClient, this.analytics);
 
       if (workspacePaths.length) {
         this.logFullAnalysisIsTriggered(manual);
@@ -50,9 +50,7 @@ export default class SnykLib extends ReportModule implements ISnykLib {
         await this.startSnykCodeAnalysis(workspacePaths, manual, false); // mark void, handle errors inside of startSnykCodeAnalysis()
       }
     } catch (err) {
-      await this.processError(err, {
-        message: errorsLogs.failedExecutionDebounce,
-      });
+      await ErrorHandler.handleGlobal(err, Logger, this.contextService, this.loadingBadge);
     }
   }
 
@@ -83,7 +81,7 @@ export default class SnykLib extends ReportModule implements ISnykLib {
       try {
         await this.startSnykCodeAnalysis();
       } catch (err) {
-        await this.processError(err);
+        ErrorHandler.handle(err, Logger);
       }
     }
   }
@@ -107,7 +105,7 @@ export default class SnykLib extends ReportModule implements ISnykLib {
     }
 
     if (!paths.length) {
-      paths = this.getWorkspacePaths();
+      paths = vsCodeWorkspace.getWorkspaceFolders();
     }
 
     await this.snykCode.startAnalysis(paths, manual, reportTriggeredEvent);
@@ -128,11 +126,6 @@ export default class SnykLib extends ReportModule implements ISnykLib {
 
   async checkAdvancedMode(): Promise<void> {
     await this.contextService.setContext(SNYK_CONTEXT.ADVANCED, configuration.shouldShowAdvancedView);
-  }
-
-  private getWorkspacePaths(): string[] {
-    const paths = (vscode.workspace.workspaceFolders || []).map(f => f.uri.fsPath); // todo: work with workspace class as abstraction
-    return paths;
   }
 
   private async setWorkspaceContext(workspacePaths: string[]): Promise<void> {

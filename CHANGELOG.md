@@ -1,5 +1,34 @@
 # Snyk Vulnerability Scanner Changelog
 
+## [1.2.7]
+
+### Added
+
+- Automatic crash reporting for caught and uncaught errors.
+- Analytics for vulnerability count hovers.
+- Preview feature toggles.
+
+### Changed
+
+- Extension feedback link.
+
+### Fixed
+
+- Authentication flow for users whose routers cannot resolve IPv6 address.
+
+## [1.2.6]
+
+### Fixed
+
+- Correct user identification in analytics.
+
+## [1.2.5]
+
+### Fixed
+
+- Authentication flow for users who have IPv6 address.
+- Snyk Code issues not always opening up from the issue tree.
+
 ## [1.2.4]
 
 ### Added

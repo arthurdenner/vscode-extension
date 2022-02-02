@@ -11,6 +11,7 @@ import {
   CODE_QUALITY_ENABLED_SETTING,
   CODE_SECURITY_ENABLED_SETTING,
   CONFIGURATION_IDENTIFIER,
+  FEATURES_PREVIEW_SETTING,
   OSS_ENABLED_SETTING,
   SEVERITY_FILTER_SETTING,
   TOKEN_SETTING,
@@ -35,6 +36,10 @@ export interface SeverityFilter {
 
   [severity: string]: boolean;
 }
+
+export type PreviewFeatures = {
+  reportFalsePositives: boolean | undefined;
+};
 
 export interface IConfiguration {
   isDevelopment: boolean;
@@ -65,6 +70,8 @@ export interface IConfiguration {
   getFeaturesConfiguration(): FeaturesConfiguration | undefined;
   setFeaturesConfiguration(config: FeaturesConfiguration | undefined): Promise<void>;
 
+  getPreviewFeatures(): PreviewFeatures;
+
   severityFilter: SeverityFilter;
 }
 
@@ -78,10 +85,20 @@ export class Configuration implements IConfiguration {
 
   constructor(private processEnv: NodeJS.ProcessEnv = process.env, private workspace: IVSCodeWorkspace) {}
 
-  static get version(): string {
+  static async getVersion(): Promise<string> {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const { version } = require(path.join('../../../..', 'package.json')) as { version: string };
+    const { version } = await this.getPackageJsonConfig();
     return version;
+  }
+
+  static async isPreview(): Promise<boolean> {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { preview } = await this.getPackageJsonConfig();
+    return preview;
+  }
+
+  private static async getPackageJsonConfig(): Promise<{ version: string; preview: boolean }> {
+    return (await import(path.join('../../../..', 'package.json'))) as { version: string; preview: boolean };
   }
 
   get isDevelopment(): boolean {
@@ -288,6 +305,23 @@ export class Configuration implements IConfiguration {
 
   get organization(): string | undefined {
     return this.workspace.getConfiguration<string>(CONFIGURATION_IDENTIFIER, this.getConfigName(ADVANCED_ORGANIZATION));
+  }
+
+  getPreviewFeatures(): PreviewFeatures {
+    const defaulSetting: PreviewFeatures = {
+      reportFalsePositives: false,
+    };
+
+    const userSetting =
+      this.workspace.getConfiguration<PreviewFeatures>(
+        CONFIGURATION_IDENTIFIER,
+        this.getConfigName(FEATURES_PREVIEW_SETTING),
+      ) || {};
+
+    return {
+      ...defaulSetting,
+      ...userSetting,
+    };
   }
 
   getAdditionalCliParameters(): string | undefined {

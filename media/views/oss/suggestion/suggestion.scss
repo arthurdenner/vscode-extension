@@ -1,0 +1,27 @@
+@import '../../common/webview';
+@import '../../common/suggestionHeader';
+
+.clickable:hover {
+  cursor: pointer;
+}
+
+.delimiter {
+  margin: 0 0.2em 0 0.2em;
+}
+
+.summary .summary-item {
+  display: flex;
+  margin: 0.3em 0 0.3em 0;
+}
+
+.summary .label {
+  flex: 30%;
+}
+
+.summary .content {
+  flex: 70%;
+}
+
+.path {
+  margin-bottom: 0.75em;
+}

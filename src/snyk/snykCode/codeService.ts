@@ -5,28 +5,34 @@ import { ISnykApiClient } from '../common/api/apiСlient';
 import { IConfiguration } from '../common/configuration/configuration';
 import { IDE_NAME } from '../common/constants/general';
 import { SNYK_CONTEXT } from '../common/constants/views';
+import { ISnykCodeErrorHandler } from '../common/error/snykCodeErrorHandler';
 import { ILog } from '../common/logger/interfaces';
 import { Logger } from '../common/logger/logger';
 import { getSastSettings } from '../common/services/cliConfigService';
 import { IContextService } from '../common/services/contextService';
 import { IOpenerService } from '../common/services/openerService';
 import { IViewManagerService } from '../common/services/viewManagerService';
+import { IWebViewProvider } from '../common/views/webviewProvider';
 import { ExtensionContext } from '../common/vscode/extensionContext';
 import { IVSCodeLanguages } from '../common/vscode/languages';
+import { Disposable } from '../common/vscode/types';
+import { IVSCodeWindow } from '../common/vscode/window';
 import { IVSCodeWorkspace } from '../common/vscode/workspace';
 import SnykCodeAnalyzer from './analyzer/analyzer';
 import { Progress } from './analyzer/progress';
 import { ISnykCodeAnalyzer } from './interfaces';
 import { messages as analysisMessages } from './messages/analysis';
+import { FalsePositiveWebviewModel, FalsePositiveWebviewProvider } from './views/falsePositive/falsePositiveWebviewProvider';
 import { ICodeSuggestionWebviewProvider } from './views/interfaces';
 import { CodeSuggestionWebviewProvider } from './views/suggestion/codeSuggestionWebviewProvider';
 
-export interface ISnykCodeService extends AnalysisStatusProvider {
+export interface ISnykCodeService extends AnalysisStatusProvider, Disposable {
   analyzer: ISnykCodeAnalyzer;
   analysisStatus: string;
   analysisProgress: string;
   remoteBundle: FileAnalysis;
-  suggestionProvider: ICodeSuggestionWebviewProvider;
+  readonly suggestionProvider: ICodeSuggestionWebviewProvider;
+  readonly falsePositiveProvider: IWebViewProvider<FalsePositiveWebviewModel>;
   hasError: boolean;
 
   startAnalysis(paths: string[], manual: boolean, reportTriggeredEvent: boolean): Promise<void>;
@@ -35,13 +41,14 @@ export interface ISnykCodeService extends AnalysisStatusProvider {
   checkCodeEnabled(): Promise<boolean>;
   enable(): Promise<boolean>;
   addChangedFile(filePath: string): void;
-  dispose(): void;
+  activateWebviewProviders(): void;
 }
 
 export class SnykCodeService extends AnalysisStatusProvider implements ISnykCodeService {
   remoteBundle: FileAnalysis;
   analyzer: ISnykCodeAnalyzer;
-  suggestionProvider: ICodeSuggestionWebviewProvider;
+  readonly suggestionProvider: ICodeSuggestionWebviewProvider;
+  readonly falsePositiveProvider: IWebViewProvider<FalsePositiveWebviewModel>;
 
   private changedFiles: Set<string> = new Set();
 
@@ -57,14 +64,18 @@ export class SnykCodeService extends AnalysisStatusProvider implements ISnykCode
     private readonly viewManagerService: IViewManagerService,
     private readonly contextService: IContextService,
     private readonly workspace: IVSCodeWorkspace,
+    readonly window: IVSCodeWindow,
     private readonly snykApiClient: ISnykApiClient,
     private readonly logger: ILog,
     private readonly analytics: IAnalytics,
     readonly languages: IVSCodeLanguages,
+    private readonly errorHandler: ISnykCodeErrorHandler,
   ) {
     super();
-    this.analyzer = new SnykCodeAnalyzer(logger, languages, analytics);
-    this.suggestionProvider = new CodeSuggestionWebviewProvider(extensionContext);
+    this.analyzer = new SnykCodeAnalyzer(logger, languages, analytics, errorHandler);
+
+    this.falsePositiveProvider = new FalsePositiveWebviewProvider(this.workspace, extensionContext, this.window, this.logger);
+    this.suggestionProvider = new CodeSuggestionWebviewProvider(config, this.analyzer, window, this.falsePositiveProvider, extensionContext, this.logger);
 
     this.progress = new Progress(this, viewManagerService, this.workspace);
     this.progress.bindListeners();
@@ -125,6 +136,11 @@ export class SnykCodeService extends AnalysisStatusProvider implements ISnykCode
           fileOptions: {
             paths,
           },
+          analysisContext: {
+            flow: this.config.source,
+            initiator: 'IDE',
+            orgDisplayName: this.config.organization,
+          },
         });
       }
 
@@ -156,7 +172,9 @@ export class SnykCodeService extends AnalysisStatusProvider implements ISnykCode
         this.suggestionProvider.checkCurrentSuggestion();
       }
     } catch (err) {
-      this.errorEncountered(err);
+      await this.errorHandler.processError(err, undefined, (error: Error) => {
+        this.errorEncountered(error);
+      });
 
       if (enabledFeatures?.codeSecurityEnabled) {
         this.analytics.logAnalysisIsReady({
@@ -230,8 +248,14 @@ export class SnykCodeService extends AnalysisStatusProvider implements ISnykCode
     this.changedFiles.add(filePath);
   }
 
+  activateWebviewProviders(): void {
+    this.suggestionProvider.activate();
+    this.falsePositiveProvider.activate();
+  }
+
   dispose(): void {
     this.progress.removeAllListeners();
+    this.analyzer.dispose();
   }
 
   private sleep = (duration: number) => new Promise(resolve => setTimeout(resolve, duration));
