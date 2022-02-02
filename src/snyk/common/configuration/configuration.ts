@@ -74,6 +74,7 @@ export class Configuration implements IConfiguration {
   private readonly defaultAuthHost = 'https://snyk.io';
   private readonly defaultOssApiEndpoint = `${this.defaultAuthHost}/api/v1`;
   private readonly defaultBaseApiHost = 'https://api.snyk.io';
+  private readonly devBaseApiHost = 'https://api.dev.snyk.io';
 
   constructor(private processEnv: NodeJS.ProcessEnv = process.env, private workspace: IVSCodeWorkspace) {}
 
@@ -153,6 +154,9 @@ export class Configuration implements IConfiguration {
   }
 
   get baseApiUrl(): string {
+    if (this.isDevelopment) {
+      return this.devBaseApiHost;
+    }
     return this.defaultBaseApiHost;
   }
 
