@@ -1,6 +1,7 @@
 import { AxiosResponse } from 'axios';
 import { Subject } from 'rxjs';
 import { ISnykApiClient } from '../../common/api/apiСlient';
+import { ILog } from '../../common/logger/interfaces';
 import { OssResult, OssResultBody, OssVulnerability } from '../../snykOss/ossResult';
 import { ModuleVulnerabilityCount } from '../../snykOss/services/vulnerabilityCount/importedModule';
 import { AdvisorScore } from '../advisorTypes';
@@ -18,7 +19,7 @@ export default class AdvisorService {
     this._vulnerabilities = vulnerabilities;
   }
 
-  constructor(private readonly snykApiClient: ISnykApiClient) {}
+  constructor(private readonly snykApiClient: ISnykApiClient, private readonly logger: ILog) {}
 
   public getScoresResult = (): AdvisorScore[] | undefined => this.scores;
 
@@ -37,7 +38,7 @@ export default class AdvisorService {
       }
     } catch (err) {
       if (err instanceof Error) {
-        console.error('Failed to get scores', err.message);
+        this.logger.error(`Failed to get scores: ${err.message}`);
       }
     }
     return scores;
