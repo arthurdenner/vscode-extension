@@ -1,10 +1,10 @@
-import * as vscode from 'vscode';
-import { Hover } from 'vscode';
 import { IConfiguration } from '../../common/configuration/configuration';
 import { getRenderOptions, updateDecorations } from '../../common/vscode/editorDecorator';
+import { HoverAdapter } from '../../common/vscode/hover';
 import { IVSCodeLanguages } from '../../common/vscode/languages';
+import { getMarkdownString } from '../../common/vscode/markdownString';
 import { IThemeColorAdapter } from '../../common/vscode/theme';
-import { DecorationOptions, TextEditorDecorationType } from '../../common/vscode/types';
+import { DecorationOptions, Hover, TextEditorDecorationType } from '../../common/vscode/types';
 import { IVSCodeWindow } from '../../common/vscode/window';
 import { AdvisorScore } from '../advisorTypes';
 
@@ -59,9 +59,10 @@ export default class EditorDecorator {
     if (!score) {
       return null;
     }
-    const hoverMessageMarkdown = new vscode.MarkdownString(``);
+    const hoverAdapter = new HoverAdapter();
+    const hoverMessageMarkdown = getMarkdownString(``);
     hoverMessageMarkdown.isTrusted = true;
-    const hoverMessage = new Hover(hoverMessageMarkdown);
+    const hoverMessage = hoverAdapter.create(hoverMessageMarkdown);
     hoverMessageMarkdown.appendMarkdown('| |  | |  |');
     hoverMessageMarkdown.appendMarkdown('\n');
     hoverMessageMarkdown.appendMarkdown('| ---- | ---- | ---- |  :---- |');
