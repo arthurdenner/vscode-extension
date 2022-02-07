@@ -1,12 +1,13 @@
 import { Subscription } from 'rxjs';
 import { IConfiguration } from '../../common/configuration/configuration';
+import { Language } from '../../common/types';
 import { IVSCodeLanguages } from '../../common/vscode/languages';
 import { getModules, getSupportedLanguage, isValidModuleName } from '../../common/vscode/parsing';
 import { ThemeColorAdapter } from '../../common/vscode/theme';
-import { Disposable, Language, TextDocument } from '../../common/vscode/types';
+import { Disposable, TextDocument } from '../../common/vscode/types';
 import { IVSCodeWindow } from '../../common/vscode/window';
 import { ModuleVulnerabilityCountProvider } from '../../snykOss/services/vulnerabilityCount/vulnerabilityCountProvider';
-import EditorDecorator from '../editor/EditorDecorator';
+import EditorDecorator from '../editor/editorDecorator';
 import AdvisorService from './AdvisorService';
 
 export class AdvisorScoreDisposable implements Disposable {
