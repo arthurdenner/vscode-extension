@@ -1,6 +1,5 @@
 import { AxiosResponse } from 'axios';
 import { Subject } from 'rxjs';
-import { CliError } from '../../cli/services/cliService';
 import { ISnykApiClient } from '../../common/api/apiСlient';
 import { OssResult, OssResultBody, OssVulnerability } from '../../snykOss/ossResult';
 import { ModuleVulnerabilityCount } from '../../snykOss/services/vulnerabilityCount/importedModule';
@@ -23,7 +22,7 @@ export default class AdvisorService {
 
   public getScoresResult = (): AdvisorScore[] | undefined => this.scores;
 
-  public async setScores(ossResult: OssResult): Promise<AdvisorScore | CliError> {
+  public async setScores(ossResult: OssResult): Promise<AdvisorScore | Error> {
     const scores: AdvisorScore = null;
     try {
       const vulnerabilities = (ossResult as OssResultBody).vulnerabilities || [];
@@ -37,12 +36,9 @@ export default class AdvisorService {
         return res.data as AdvisorScore;
       }
     } catch (err) {
-      if (err instanceof CliError) {
-        return err;
+      if (err instanceof Error) {
+        console.error('Failed to get scores', err.message);
       }
-
-      const result = new CliError(err, '');
-      console.error('Failed to get scores', result.error.toString());
     }
     return scores;
   }
