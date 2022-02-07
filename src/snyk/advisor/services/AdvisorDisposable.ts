@@ -1,5 +1,6 @@
 import { Subscription } from 'rxjs';
 import { IConfiguration } from '../../common/configuration/configuration';
+import { ILog } from '../../common/logger/interfaces';
 import { Language } from '../../common/types';
 import { IVSCodeLanguages } from '../../common/vscode/languages';
 import { getModules, getSupportedLanguage, isValidModuleName } from '../../common/vscode/parsing';
@@ -22,6 +23,7 @@ export class AdvisorScoreDisposable implements Disposable {
     private readonly advisorService: AdvisorService,
     private readonly vulnerabilityCountProvider: ModuleVulnerabilityCountProvider,
     private readonly configuration: IConfiguration,
+    private readonly logger: ILog,
   ) {
     this.editorDecorator = new EditorDecorator(window, languages, new ThemeColorAdapter(), this.configuration);
   }
@@ -47,29 +49,30 @@ export class AdvisorScoreDisposable implements Disposable {
 
     const { fileName, languageId } = document;
     const supportedLanguage = getSupportedLanguage(fileName, languageId);
+    if (!supportedLanguage) {
+      return false;
+    }
     if (supportedLanguage !== Language.PJSON) {
       return false;
     }
     const scores = this.advisorService.getScoresResult();
     if (scores?.length) {
-      if (supportedLanguage) {
-        const modules = getModules(fileName, document.getText(), supportedLanguage).filter(isValidModuleName);
-        const promises = modules
-          .map(module => this.vulnerabilityCountProvider.getVulnerabilityCount(module, supportedLanguage))
-          .map(promise => promise.then(module => module));
-        Promise.all(promises).then(
-          testedModules => {
-            const vulnsLineDecorations: Map<string, number> = new Map<string, number>();
-            testedModules.forEach(vulnerabilityCount => {
-              vulnsLineDecorations.set(vulnerabilityCount.name, vulnerabilityCount.line || -1);
-            });
-            this.editorDecorator.addScoresDecorations(fileName, scores, vulnsLineDecorations);
-          },
-          err => {
-            console.log('Failed to get modules for advisor score', err);
-          },
-        );
-      }
+      const modules = getModules(fileName, document.getText(), supportedLanguage).filter(isValidModuleName);
+      const promises = modules
+        .map(module => this.vulnerabilityCountProvider.getVulnerabilityCount(module, supportedLanguage))
+        .map(promise => promise.then(module => module));
+      Promise.all(promises).then(
+        testedModules => {
+          const vulnsLineDecorations: Map<string, number> = new Map<string, number>();
+          testedModules.forEach(vulnerabilityCount => {
+            vulnsLineDecorations.set(vulnerabilityCount.name, vulnerabilityCount.line || -1);
+          });
+          this.editorDecorator.addScoresDecorations(fileName, scores, vulnsLineDecorations);
+        },
+        err => {
+          this.logger.error(`Failed to get modules for advisor score ${err}`);
+        },
+      );
     }
 
     return true;
