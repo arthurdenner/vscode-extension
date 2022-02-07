@@ -3,6 +3,7 @@ import { BabelParser } from '../../snykOss/services/vulnerabilityCount/parsers/b
 import { HtmlParser } from '../../snykOss/services/vulnerabilityCount/parsers/htmlParser';
 import { ModuleParser } from '../../snykOss/services/vulnerabilityCount/parsers/moduleParser';
 import { PackageJsonParser } from '../../snykOss/services/vulnerabilityCount/parsers/packageJsonParser';
+import nativeModules from '../constants/nativeModules';
 import { ImportedModule, Language } from '../types';
 import {
   HTML,
@@ -15,7 +16,6 @@ import {
   TYPESCRIPT_FILE_REGEX,
   TYPESCRIPT_REACT,
 } from './languageConsts';
-import nativeModules from './nativeModules';
 
 export function getInstance(language: Language): ModuleParser | undefined {
   if ([Language.TypeScript, Language.JavaScript].includes(language)) {
