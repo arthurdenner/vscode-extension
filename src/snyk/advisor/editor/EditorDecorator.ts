@@ -1,11 +1,12 @@
 import * as vscode from 'vscode';
 import { Hover } from 'vscode';
+import { IConfiguration } from '../../common/configuration/configuration';
 import { getRenderOptions, updateDecorations } from '../../common/vscode/editorDecorator';
 import { IVSCodeLanguages } from '../../common/vscode/languages';
 import { IThemeColorAdapter } from '../../common/vscode/theme';
 import { DecorationOptions, TextEditorDecorationType } from '../../common/vscode/types';
 import { IVSCodeWindow } from '../../common/vscode/window';
-import { AdvisorScore } from '../AdvisorTypes';
+import { AdvisorScore } from '../advisorTypes';
 
 type LineDecorations = DecorationOptions[]; // array index is a line number
 const SCORE_PREFIX = 'Advisor Score';
@@ -18,6 +19,7 @@ export default class EditorDecorator {
     private readonly window: IVSCodeWindow,
     private readonly languages: IVSCodeLanguages,
     private readonly themeColorAdapter: IThemeColorAdapter,
+    private readonly configuration: IConfiguration,
   ) {
     this.decorationType = this.window.createTextEditorDecorationType({
       after: { margin: '0 0 0 1rem' },
@@ -68,7 +70,9 @@ export default class EditorDecorator {
       hoverMessageMarkdown.appendMarkdown(`| ${label}: | | | ${score?.labels[label]} |`);
       hoverMessageMarkdown.appendMarkdown('\n');
     });
-    hoverMessageMarkdown.appendMarkdown(`[More Details](http://snyk.io/advisor/npm-package/${score.name})`);
+    hoverMessageMarkdown.appendMarkdown(
+      `[More Details](${this.configuration.getAdvisorUrl('npm-package')}/${score.name})`,
+    );
 
     return hoverMessage;
   }

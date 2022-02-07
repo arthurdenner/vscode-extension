@@ -4,7 +4,7 @@ import { CliError } from '../../cli/services/cliService';
 import { ISnykApiClient } from '../../common/api/apiСlient';
 import { OssResult, OssResultBody, OssVulnerability } from '../../snykOss/ossResult';
 import { ModuleVulnerabilityCount } from '../../snykOss/services/vulnerabilityCount/importedModule';
-import { AdvisorScore } from '../AdvisorTypes';
+import { AdvisorScore } from '../advisorTypes';
 
 export default class AdvisorService {
   protected scores: AdvisorScore[];

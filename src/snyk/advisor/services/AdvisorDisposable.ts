@@ -1,4 +1,5 @@
 import { Subscription } from 'rxjs';
+import { IConfiguration } from '../../common/configuration/configuration';
 import { IVSCodeLanguages } from '../../common/vscode/languages';
 import { getModules, getSupportedLanguage, isValidModuleName } from '../../common/vscode/parsing';
 import { ThemeColorAdapter } from '../../common/vscode/theme';
@@ -19,8 +20,9 @@ export class AdvisorScoreDisposable implements Disposable {
     private readonly languages: IVSCodeLanguages,
     private readonly advisorService: AdvisorService,
     private readonly vulnerabilityCountProvider: ModuleVulnerabilityCountProvider,
+    private readonly configuration: IConfiguration,
   ) {
-    this.editorDecorator = new EditorDecorator(window, languages, new ThemeColorAdapter());
+    this.editorDecorator = new EditorDecorator(window, languages, new ThemeColorAdapter(), this.configuration);
   }
 
   activate(): boolean {

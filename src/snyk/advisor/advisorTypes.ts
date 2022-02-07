@@ -11,3 +11,5 @@ export type AdvisorScore = {
   pending: boolean;
   labels: AdvisorScoreLabel;
 } | null;
+
+export type AdvisorRegistry = 'npm-package' | 'python';
