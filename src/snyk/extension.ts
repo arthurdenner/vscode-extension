@@ -256,6 +256,7 @@ class SnykExtension extends SnykLib implements IExtension {
       this.advisorService,
       new ModuleVulnerabilityCountProvider(this.ossService, npmModuleInfoFetchService),
       configuration,
+      Logger,
     );
     this.advisorScoreDisposable.activate();
 
