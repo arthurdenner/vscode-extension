@@ -10,6 +10,7 @@ import { AdvisorScore } from '../advisorTypes';
 
 type LineDecorations = DecorationOptions[]; // array index is a line number
 const SCORE_PREFIX = 'Advisor Score';
+const SCORE_THRESHOLD = 0.7;
 
 export default class EditorDecorator {
   private readonly decorationType: TextEditorDecorationType;
@@ -27,32 +28,30 @@ export default class EditorDecorator {
   }
 
   addScoresDecorations(filePath: string, scores: AdvisorScore[], lineDecorations: Map<string, number>): void {
-    if (scores && lineDecorations?.size) {
-      const decorations: LineDecorations = [];
-      for (const [packageName, line] of lineDecorations) {
-        if (line < 0) {
-          continue;
-        }
-
-        const score = scores.find(score => score && score.name === packageName);
-        if (score) {
-          decorations[line] = {
-            range: this.languages.createRange(
-              line - 1,
-              this.editorLastCharacterIndex,
-              line - 1,
-              this.editorLastCharacterIndex,
-            ),
-            renderOptions: getRenderOptions(
-              `| ${SCORE_PREFIX} ${Math.round(score.score * 100)}/100`,
-              this.themeColorAdapter,
-            ),
-            hoverMessage: this.getHoverMessage(score)?.contents,
-          };
-        }
+    const decorations: LineDecorations = [];
+    for (const [packageName, line] of lineDecorations) {
+      if (line < 0) {
+        continue;
       }
-      updateDecorations(this.window, filePath, decorations, this.decorationType);
+
+      const packageScore = scores.find(score => score && score.name === packageName);
+      if (packageScore && packageScore.score < SCORE_THRESHOLD) {
+        decorations[line] = {
+          range: this.languages.createRange(
+            line - 1,
+            this.editorLastCharacterIndex,
+            line - 1,
+            this.editorLastCharacterIndex,
+          ),
+          renderOptions: getRenderOptions(
+            `${SCORE_PREFIX} ${Math.round(packageScore.score * 100)}/100`,
+            this.themeColorAdapter,
+          ),
+          hoverMessage: this.getHoverMessage(packageScore)?.contents,
+        };
+      }
     }
+    updateDecorations(this.window, filePath, decorations, this.decorationType);
   }
 
   getHoverMessage(score: AdvisorScore): Hover | null {

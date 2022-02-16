@@ -14,7 +14,7 @@ export function updateDecorations(
     if (decorations && decorations.length) {
       editor.setDecorations(
         decorationType,
-        decorations.filter(d => !!d),
+        decorations.filter(d => !!d).filter(({ renderOptions }) => renderOptions?.after?.contentText),
       );
     }
   }

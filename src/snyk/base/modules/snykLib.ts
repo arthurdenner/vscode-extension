@@ -143,7 +143,6 @@ export default class SnykLib extends BaseSnykModule implements ISnykLib {
     try {
       const oldResult = this.ossService.getResult();
       const result: OssResult = await this.ossService.test(manual, reportTriggeredEvent);
-      await this.advisorService?.setScores(result);
 
       if (result instanceof CliError) {
         return;

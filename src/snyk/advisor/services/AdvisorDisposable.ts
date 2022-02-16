@@ -1,19 +1,21 @@
 import { Subscription } from 'rxjs';
 import { IConfiguration } from '../../common/configuration/configuration';
 import { ILog } from '../../common/logger/interfaces';
-import { Language } from '../../common/types';
+import { ImportedModule, Language } from '../../common/types';
 import { IVSCodeLanguages } from '../../common/vscode/languages';
 import { getModules, getSupportedLanguage, isValidModuleName } from '../../common/vscode/parsing';
 import { ThemeColorAdapter } from '../../common/vscode/theme';
-import { Disposable, TextDocument } from '../../common/vscode/types';
+import { Disposable, TextEditor } from '../../common/vscode/types';
 import { IVSCodeWindow } from '../../common/vscode/window';
 import { ModuleVulnerabilityCountProvider } from '../../snykOss/services/vulnerabilityCount/vulnerabilityCountProvider';
+import { AdvisorScore } from '../advisorTypes';
 import EditorDecorator from '../editor/editorDecorator';
 import AdvisorService from './AdvisorService';
 
 export class AdvisorScoreDisposable implements Disposable {
   protected disposables: Disposable[] = [];
   protected advisorScanFinishedSubscription: Subscription;
+  protected activeEditor: TextEditor | undefined;
 
   private readonly editorDecorator: EditorDecorator;
 
@@ -28,54 +30,43 @@ export class AdvisorScoreDisposable implements Disposable {
     this.editorDecorator = new EditorDecorator(window, languages, new ThemeColorAdapter(), this.configuration);
   }
 
-  activate(): boolean {
-    this.advisorScanFinishedSubscription = this.advisorService.scanFinished$.subscribe(() => {
-      this.processActiveEditor();
-    });
-    return false;
-  }
+  async activate(): Promise<boolean> {
+    this.activeEditor = this.window.getActiveTextEditor();
+    if (this.activeEditor) {
+      const { fileName, languageId } = this.activeEditor.document;
+      const supportedLanguage = getSupportedLanguage(fileName, languageId);
+      if (!supportedLanguage) {
+        return false;
+      }
+      if (supportedLanguage !== Language.PJSON) {
+        return false;
+      }
 
-  processActiveEditor(): void {
-    const activeEditor = this.window.getActiveTextEditor();
-    if (activeEditor) {
-      this.processFile(activeEditor.document);
-    }
-  }
+      const modules = getModules(fileName, this.activeEditor.document.getText(), supportedLanguage).filter(
+        isValidModuleName,
+      );
 
-  processFile(document: TextDocument): boolean {
-    if (!document) {
-      return false;
-    }
-
-    const { fileName, languageId } = document;
-    const supportedLanguage = getSupportedLanguage(fileName, languageId);
-    if (!supportedLanguage) {
-      return false;
-    }
-    if (supportedLanguage !== Language.PJSON) {
-      return false;
-    }
-    const scores = this.advisorService.getScoresResult();
-    if (scores?.length) {
-      const modules = getModules(fileName, document.getText(), supportedLanguage).filter(isValidModuleName);
-      const promises = modules
-        .map(module => this.vulnerabilityCountProvider.getVulnerabilityCount(module, supportedLanguage))
-        .map(promise => promise.then(module => module));
-      Promise.all(promises).then(
-        testedModules => {
-          const vulnsLineDecorations: Map<string, number> = new Map<string, number>();
-          testedModules.forEach(vulnerabilityCount => {
-            vulnsLineDecorations.set(vulnerabilityCount.name, vulnerabilityCount.line || -1);
-          });
-          this.editorDecorator.addScoresDecorations(fileName, scores, vulnsLineDecorations);
-        },
-        err => {
-          this.logger.error(`Failed to get modules for advisor score ${err}`);
-        },
+      const scores = await this.advisorService.getScores(modules);
+      this.processScores(scores, modules, fileName);
+      this.disposables.push(
+        // TODO: get scores on save file?
+        this.window.onDidChangeActiveTextEditor(ev => {
+          if (ev) {
+            this.processScores(scores, modules, fileName);
+          }
+        }),
       );
     }
 
-    return true;
+    return false;
+  }
+
+  processScores(scores: AdvisorScore[], modules: ImportedModule[], fileName: string): void {
+    const vulnsLineDecorations: Map<string, number> = new Map<string, number>();
+    modules.forEach(({ name, line }) => {
+      vulnsLineDecorations.set(name, line || -1);
+    });
+    this.editorDecorator.addScoresDecorations(fileName, scores, vulnsLineDecorations);
   }
 
   dispose(): void {
