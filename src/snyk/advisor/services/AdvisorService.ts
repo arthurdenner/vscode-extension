@@ -1,10 +1,10 @@
 import { AxiosResponse } from 'axios';
 import { Subject } from 'rxjs';
-import { ISnykApiClient } from '../../common/api/apiСlient';
 import { ILog } from '../../common/logger/interfaces';
 import { OssResult, OssResultBody, OssVulnerability } from '../../snykOss/ossResult';
 import { ModuleVulnerabilityCount } from '../../snykOss/services/vulnerabilityCount/importedModule';
 import { AdvisorScore } from '../advisorTypes';
+import { IAdvisorApiClient } from './AdvisorApiClient';
 
 export default class AdvisorService {
   protected scores: AdvisorScore[];
@@ -19,7 +19,7 @@ export default class AdvisorService {
     this._vulnerabilities = vulnerabilities;
   }
 
-  constructor(private readonly snykApiClient: ISnykApiClient, private readonly logger: ILog) {}
+  constructor(private readonly advisorApiClient: IAdvisorApiClient, private readonly logger: ILog) {}
 
   public getScoresResult = (): AdvisorScore[] | undefined => this.scores;
 
@@ -27,7 +27,7 @@ export default class AdvisorService {
     const scores: AdvisorScore = null;
     try {
       const vulnerabilities = (ossResult as OssResultBody).vulnerabilities || [];
-      const res: AxiosResponse = await this.snykApiClient.post(
+      const res: AxiosResponse = await this.advisorApiClient.post(
         this.api,
         vulnerabilities.map((vuln: OssVulnerability) => vuln.name),
       );

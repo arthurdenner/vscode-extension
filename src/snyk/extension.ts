@@ -127,7 +127,7 @@ class SnykExtension extends SnykLib implements IExtension {
       this.snykCodeErrorHandler,
     );
 
-    this.advisorService = new AdvisorService(this.snykApiClient, Logger);
+    this.advisorService = new AdvisorService(this.advisorApiClient, Logger);
 
     this.cliDownloadService = new CliDownloadService(this.context, new StaticCliApi(), vsCodeWindow, Logger);
     this.ossService = new OssService(

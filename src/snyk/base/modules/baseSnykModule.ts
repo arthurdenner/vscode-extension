@@ -1,3 +1,4 @@
+import { AdvisorApiClient, IAdvisorApiClient } from '../../advisor/services/AdvisorApiClient';
 import { AdvisorScoreDisposable } from '../../advisor/services/AdvisorDisposable';
 import AdvisorService from '../../advisor/services/AdvisorService';
 import { CliDownloadService } from '../../cli/services/cliDownloadService';
@@ -49,6 +50,7 @@ export default abstract class BaseSnykModule implements IBaseSnykModule {
   protected analytics: IAnalytics;
 
   protected snykApiClient: ISnykApiClient;
+  protected advisorApiClient: IAdvisorApiClient;
   snykCode: ISnykCodeService;
 
   readonly loadingBadge: ILoadingBadge;
@@ -65,6 +67,7 @@ export default abstract class BaseSnykModule implements IBaseSnykModule {
     this.scanModeService = new ScanModeService(this.contextService, configuration);
     this.loadingBadge = new LoadingBadge();
     this.snykApiClient = new SnykApiClient(configuration);
+    this.advisorApiClient = new AdvisorApiClient(configuration);
     this.snykCodeErrorHandler = new SnykCodeErrorHandler(this.contextService, this.loadingBadge, Logger, this);
   }
 
