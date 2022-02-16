@@ -34,6 +34,16 @@ export class SnykApiClient implements ISnykApiClient {
   }
 
   get<T = unknown, R = AxiosResponse<T>>(url: string, config?: AxiosRequestConfig): Promise<R> {
+    this.setupRequestAuth();
+    return this.http.get<T, R>(url, config);
+  }
+
+  post<T = unknown, R = AxiosResponse<T>>(url: string, data: unknown, config?: AxiosRequestConfig): Promise<R> {
+    this.setupRequestAuth();
+    return this.http.post<T, R>(url, data, config);
+  }
+
+  private setupRequestAuth() {
     this.http.interceptors.request.use(req => {
       if (req.method === 'get') {
         req.baseURL = `${this.configuration.authHost}/api/v1/`;
@@ -45,7 +55,5 @@ export class SnykApiClient implements ISnykApiClient {
 
       return req;
     });
-
-    return this.http.get<T, R>(url, config);
   }
 }
