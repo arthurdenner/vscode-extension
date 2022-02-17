@@ -260,7 +260,7 @@ class SnykExtension extends SnykLib implements IExtension {
       configuration,
       Logger,
     );
-    this.advisorScoreDisposable.activate();
+    await this.advisorScoreDisposable.activate();
 
     // Actually start analysis
     this.runScan();
