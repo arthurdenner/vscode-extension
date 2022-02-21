@@ -17,6 +17,7 @@ export const SNYK_CONTEXT = {
   AUTHENTICATING: 'authenticating',
   FEATURES_SELECTED: 'featuresSelected',
   CODE_ENABLED: 'codeEnabled',
+  CODE_LOCAL_ENGINE_ENABLED: 'codeLocalEngineEnabled',
   WORKSPACE_FOUND: 'workspaceFound',
   ERROR: 'error',
   MODE: 'mode',
@@ -25,7 +26,6 @@ export const SNYK_CONTEXT = {
 };
 
 export const SNYK_ERROR_CODES = {
-  TRANSIENT: 'transient',
   BLOCKING: 'blocking',
 };
 

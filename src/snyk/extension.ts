@@ -50,6 +50,7 @@ import { vsCodeEnv } from './common/vscode/env';
 import { extensionContext } from './common/vscode/extensionContext';
 import { vsCodeLanguages, VSCodeLanguages } from './common/vscode/languages';
 import { ThemeColorAdapter } from './common/vscode/theme';
+import { UriAdapter } from './common/vscode/uri';
 import { vsCodeWindow } from './common/vscode/window';
 import { vsCodeWorkspace } from './common/vscode/workspace';
 import SettingsWatcher from './common/watchers/settingsWatcher';
@@ -115,18 +116,16 @@ class SnykExtension extends SnykLib implements IExtension {
     this.snykCode = new SnykCodeService(
       this.context,
       configuration,
-      this.openerService,
       this.viewManagerService,
-      this.contextService,
       vsCodeWorkspace,
       vsCodeWindow,
       this.user,
-      this.snykApiClient,
       this.falsePositiveApi,
       Logger,
       this.analytics,
       new VSCodeLanguages(),
       this.snykCodeErrorHandler,
+      new UriAdapter(),
     );
 
     this.advisorService = new AdvisorService(this.advisorApiClient, Logger);

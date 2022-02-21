@@ -1,23 +1,19 @@
-import { analyzeFolders, extendAnalysis, FileAnalysis } from '@snyk/code-client';
+import { AnalysisSeverity, analyzeFolders, extendAnalysis, FileAnalysis } from '@snyk/code-client';
 import { AnalysisStatusProvider } from '../common/analysis/statusProvider';
 import { IAnalytics, SupportedAnalysisProperties } from '../common/analytics/itly';
-import { ISnykApiClient } from '../common/api/apiСlient';
-import { IConfiguration } from '../common/configuration/configuration';
+import { FeaturesConfiguration, IConfiguration } from '../common/configuration/configuration';
 import { IDE_NAME } from '../common/constants/general';
-import { SNYK_CONTEXT } from '../common/constants/views';
 import { ErrorHandler } from '../common/error/errorHandler';
-import { ISnykCodeErrorHandler } from '../common/error/snykCodeErrorHandler';
+import { ISnykCodeErrorHandler } from './error/snykCodeErrorHandler';
 import { ILog } from '../common/logger/interfaces';
 import { Logger } from '../common/logger/logger';
-import { getSastSettings } from '../common/services/cliConfigService';
-import { IContextService } from '../common/services/contextService';
-import { IOpenerService } from '../common/services/openerService';
 import { IViewManagerService } from '../common/services/viewManagerService';
 import { User } from '../common/user';
 import { IWebViewProvider } from '../common/views/webviewProvider';
 import { ExtensionContext } from '../common/vscode/extensionContext';
 import { IVSCodeLanguages } from '../common/vscode/languages';
 import { Disposable } from '../common/vscode/types';
+import { IUriAdapter } from '../common/vscode/uri';
 import { IVSCodeWindow } from '../common/vscode/window';
 import { IVSCodeWorkspace } from '../common/vscode/workspace';
 import SnykCodeAnalyzer from './analyzer/analyzer';
@@ -27,6 +23,7 @@ import { FalsePositive } from './falsePositive/falsePositive';
 import { ISnykCodeAnalyzer } from './interfaces';
 import { messages as analysisMessages } from './messages/analysis';
 import { messages } from './messages/error';
+import { IssueUtils } from './utils/issueUtils';
 import {
   FalsePositiveWebviewModel,
   FalsePositiveWebviewProvider,
@@ -42,15 +39,18 @@ export interface ISnykCodeService extends AnalysisStatusProvider, Disposable {
   readonly suggestionProvider: ICodeSuggestionWebviewProvider;
   readonly falsePositiveProvider: IWebViewProvider<FalsePositiveWebviewModel>;
   hasError: boolean;
+  hasTransientError: boolean;
 
   startAnalysis(paths: string[], manual: boolean, reportTriggeredEvent: boolean): Promise<void>;
   updateStatus(status: string, progress: string): void;
   errorEncountered(error: Error): void;
-  checkCodeEnabled(): Promise<boolean>;
-  enable(): Promise<boolean>;
   addChangedFile(filePath: string): void;
   activateWebviewProviders(): void;
-  reportFalsePositive(falsePositive: FalsePositive): Promise<void>;
+  reportFalsePositive(
+    falsePositive: FalsePositive,
+    isSecurityTypeIssue: boolean,
+    issueSeverity: AnalysisSeverity,
+  ): Promise<void>;
 }
 
 export class SnykCodeService extends AnalysisStatusProvider implements ISnykCodeService {
@@ -64,28 +64,33 @@ export class SnykCodeService extends AnalysisStatusProvider implements ISnykCode
   private progress: Progress;
   private _analysisStatus = '';
   private _analysisProgress = '';
+  private temporaryFailed = false;
   private failed = false;
 
   constructor(
     readonly extensionContext: ExtensionContext,
     private readonly config: IConfiguration,
-    private readonly openerService: IOpenerService,
     private readonly viewManagerService: IViewManagerService,
-    private readonly contextService: IContextService,
     private readonly workspace: IVSCodeWorkspace,
     readonly window: IVSCodeWindow,
     private readonly user: User,
-    private readonly snykApiClient: ISnykApiClient,
     private readonly falsePositiveApi: IFalsePositiveApi,
     private readonly logger: ILog,
     private readonly analytics: IAnalytics,
     readonly languages: IVSCodeLanguages,
     private readonly errorHandler: ISnykCodeErrorHandler,
+    private readonly uriAdapter: IUriAdapter,
   ) {
     super();
-    this.analyzer = new SnykCodeAnalyzer(logger, languages, analytics, errorHandler);
+    this.analyzer = new SnykCodeAnalyzer(logger, languages, analytics, errorHandler, this.uriAdapter);
 
-    this.falsePositiveProvider = new FalsePositiveWebviewProvider(this, this.window, extensionContext, this.logger);
+    this.falsePositiveProvider = new FalsePositiveWebviewProvider(
+      this,
+      this.window,
+      extensionContext,
+      this.logger,
+      this.analytics,
+    );
     this.suggestionProvider = new CodeSuggestionWebviewProvider(
       config,
       this.analyzer,
@@ -101,6 +106,9 @@ export class SnykCodeService extends AnalysisStatusProvider implements ISnykCode
 
   get hasError(): boolean {
     return this.failed;
+  }
+  get hasTransientError(): boolean {
+    return this.temporaryFailed;
   }
 
   get analysisStatus(): string {
@@ -120,26 +128,16 @@ export class SnykCodeService extends AnalysisStatusProvider implements ISnykCode
     try {
       Logger.info(analysisMessages.started);
 
-      if (reportTriggeredEvent) {
-        const analysisType: SupportedAnalysisProperties[] = [];
-        if (enabledFeatures?.codeSecurityEnabled) analysisType.push('Snyk Code Security');
-        if (enabledFeatures?.codeQualityEnabled) analysisType.push('Snyk Code Quality');
+      // reset error state
+      this.temporaryFailed = false;
+      this.failed = false;
 
-        if (analysisType) {
-          this.analytics.logAnalysisIsTriggered({
-            analysisType: analysisType as [SupportedAnalysisProperties, ...SupportedAnalysisProperties[]],
-            ide: IDE_NAME,
-            triggeredByUser: manualTrigger,
-          });
-        }
-      }
-
+      this.reportAnalysisIsTriggered(reportTriggeredEvent, enabledFeatures, manualTrigger);
       this.analysisStarted();
 
       let result: FileAnalysis | null = null;
       if (this.changedFiles.size && this.remoteBundle) {
         const changedFiles = [...this.changedFiles];
-        this.changedFiles.clear();
         result = await extendAnalysis({ ...this.remoteBundle, files: changedFiles });
       } else {
         result = await analyzeFolders({
@@ -188,10 +186,14 @@ export class SnykCodeService extends AnalysisStatusProvider implements ISnykCode
         }
 
         this.suggestionProvider.checkCurrentSuggestion();
+
+        // cleanup analysis state
+        this.changedFiles.clear();
       }
     } catch (err) {
-      await this.errorHandler.processError(err, undefined, (error: Error) => {
-        this.errorEncountered(error);
+      this.temporaryFailed = true;
+      await this.errorHandler.processError(err, undefined, () => {
+        this.errorEncountered();
       });
 
       if (enabledFeatures?.codeSecurityEnabled) {
@@ -214,52 +216,35 @@ export class SnykCodeService extends AnalysisStatusProvider implements ISnykCode
     }
   }
 
+  private reportAnalysisIsTriggered(
+    reportTriggeredEvent: boolean,
+    enabledFeatures: FeaturesConfiguration | undefined,
+    manualTrigger: boolean,
+  ) {
+    if (reportTriggeredEvent) {
+      const analysisType: SupportedAnalysisProperties[] = [];
+      if (enabledFeatures?.codeSecurityEnabled) analysisType.push('Snyk Code Security');
+      if (enabledFeatures?.codeQualityEnabled) analysisType.push('Snyk Code Quality');
+
+      if (analysisType) {
+        this.analytics.logAnalysisIsTriggered({
+          analysisType: analysisType as [SupportedAnalysisProperties, ...SupportedAnalysisProperties[]],
+          ide: IDE_NAME,
+          triggeredByUser: manualTrigger,
+        });
+      }
+    }
+  }
+
   updateStatus(status: string, progress: string): void {
     this._analysisStatus = status;
     this._analysisProgress = progress;
   }
 
-  errorEncountered(error: Error): void {
+  errorEncountered(): void {
+    this.temporaryFailed = false;
     this.failed = true;
-    this.logger.error(`${analysisMessages.failed} ${JSON.stringify(error)}`);
-  }
-
-  async checkCodeEnabled(): Promise<boolean> {
-    const enabled = await this.isEnabled();
-
-    await this.contextService.setContext(SNYK_CONTEXT.CODE_ENABLED, enabled);
-
-    return enabled;
-  }
-
-  private async isEnabled(): Promise<boolean> {
-    const settings = await getSastSettings(this.snykApiClient);
-    return settings.sastEnabled;
-  }
-
-  async enable(): Promise<boolean> {
-    let settings = await getSastSettings(this.snykApiClient);
-    if (settings.sastEnabled) {
-      return true;
-    }
-
-    if (this.config.snykCodeUrl != null) {
-      await this.openerService.openBrowserUrl(this.config.snykCodeUrl);
-    }
-
-    // Poll for changed settings (65 sec)
-    for (let i = 2; i < 12; i += 1) {
-      // eslint-disable-next-line no-await-in-loop
-      await this.sleep(i * 1000);
-
-      // eslint-disable-next-line no-await-in-loop
-      settings = await getSastSettings(this.snykApiClient);
-      if (settings.sastEnabled) {
-        return true;
-      }
-    }
-
-    return false;
+    this.logger.error(analysisMessages.failed);
   }
 
   addChangedFile(filePath: string): void {
@@ -271,9 +256,19 @@ export class SnykCodeService extends AnalysisStatusProvider implements ISnykCode
     this.falsePositiveProvider.activate();
   }
 
-  async reportFalsePositive(falsePositive: FalsePositive): Promise<void> {
+  async reportFalsePositive(
+    falsePositive: FalsePositive,
+    isSecurityTypeIssue: boolean,
+    issueSeverity: AnalysisSeverity,
+  ): Promise<void> {
     try {
       await this.falsePositiveApi.report(falsePositive, this.user);
+
+      this.analytics.logFalsePositiveIsSubmitted({
+        issueId: falsePositive.id,
+        issueType: IssueUtils.getIssueType(isSecurityTypeIssue),
+        severity: IssueUtils.severityAsText(issueSeverity),
+      });
     } catch (e) {
       ErrorHandler.handle(e, this.logger, messages.reportFalsePositiveFailed);
     }
@@ -283,6 +278,4 @@ export class SnykCodeService extends AnalysisStatusProvider implements ISnykCode
     this.progress.removeAllListeners();
     this.analyzer.dispose();
   }
-
-  private sleep = (duration: number) => new Promise(resolve => setTimeout(resolve, duration));
 }

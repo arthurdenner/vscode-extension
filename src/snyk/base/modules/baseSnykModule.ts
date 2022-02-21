@@ -6,7 +6,7 @@ import { IAnalytics } from '../../common/analytics/itly';
 import { ISnykApiClient, SnykApiClient } from '../../common/api/apiСlient';
 import { CommandController } from '../../common/commands/commandController';
 import { configuration } from '../../common/configuration/instance';
-import { ISnykCodeErrorHandler, SnykCodeErrorHandler } from '../../common/error/snykCodeErrorHandler';
+import { ISnykCodeErrorHandler, SnykCodeErrorHandler } from '../../snykCode/error/snykCodeErrorHandler';
 import { ExperimentService } from '../../common/experiment/services/experimentService';
 import { Logger } from '../../common/logger/logger';
 import { ContextService, IContextService } from '../../common/services/contextService';
@@ -17,6 +17,7 @@ import { User } from '../../common/user';
 import { ExtensionContext } from '../../common/vscode/extensionContext';
 import { IWatcher } from '../../common/watchers/interfaces';
 import { ISnykCodeService } from '../../snykCode/codeService';
+import { CodeSettings, ICodeSettings } from '../../snykCode/codeSettings';
 import { FalsePositiveApi, IFalsePositiveApi } from '../../snykCode/falsePositive/api/falsePositiveApi';
 import SnykEditorsWatcher from '../../snykCode/watchers/editorsWatcher';
 import { OssService } from '../../snykOss/services/ossService';
@@ -54,6 +55,7 @@ export default abstract class BaseSnykModule implements IBaseSnykModule {
   protected advisorApiClient: IAdvisorApiClient;
   protected falsePositiveApi: IFalsePositiveApi;
   snykCode: ISnykCodeService;
+  protected codeSettings: ICodeSettings;
 
   readonly loadingBadge: ILoadingBadge;
   protected user: User;
@@ -71,7 +73,8 @@ export default abstract class BaseSnykModule implements IBaseSnykModule {
     this.snykApiClient = new SnykApiClient(configuration);
     this.advisorApiClient = new AdvisorApiClient(configuration);
     this.falsePositiveApi = new FalsePositiveApi(configuration);
-    this.snykCodeErrorHandler = new SnykCodeErrorHandler(this.contextService, this.loadingBadge, Logger, this);
+    this.snykCodeErrorHandler = new SnykCodeErrorHandler(this.contextService, this.loadingBadge, Logger, this, configuration);
+    this.codeSettings = new CodeSettings(this.snykApiClient, this.contextService, configuration, this.openerService);
   }
 
   abstract runScan(): Promise<void>;
