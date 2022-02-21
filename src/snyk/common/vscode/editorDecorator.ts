@@ -9,7 +9,6 @@ export function updateDecorations(
   decorationType: TextEditorDecorationType,
 ): void {
   const visibleEditors = window.getVisibleTextEditors().filter(editor => editor.document.fileName === filePath);
-
   for (const editor of visibleEditors) {
     if (decorations && decorations.length) {
       editor.setDecorations(

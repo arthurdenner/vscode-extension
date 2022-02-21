@@ -15,6 +15,7 @@ const SCORE_THRESHOLD = 0.7;
 export default class EditorDecorator {
   private readonly decorationType: TextEditorDecorationType;
   private readonly editorLastCharacterIndex = Number.MAX_SAFE_INTEGER;
+  private readonly fileDecorationLines: Map<string, LineDecorations> = new Map<string, LineDecorations>();
 
   constructor(
     private readonly window: IVSCodeWindow,
@@ -49,6 +50,7 @@ export default class EditorDecorator {
           ),
           hoverMessage: this.getHoverMessage(packageScore)?.contents,
         };
+        this.fileDecorationLines.set(filePath, decorations);
       }
     }
     updateDecorations(this.window, filePath, decorations, this.decorationType);
@@ -75,5 +77,19 @@ export default class EditorDecorator {
     );
 
     return hoverMessage;
+  }
+
+  resetDecorations(filePath: string): void {
+    const decorations: LineDecorations | undefined = this.fileDecorationLines.get(filePath);
+    if (!decorations) {
+      return;
+    }
+
+    const emptyDecorations = decorations.map(d => ({
+      ...d,
+      renderOptions: getRenderOptions('', this.themeColorAdapter),
+    }));
+
+    updateDecorations(this.window, filePath, emptyDecorations, this.decorationType);
   }
 }

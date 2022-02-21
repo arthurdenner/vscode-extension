@@ -259,6 +259,7 @@ class SnykExtension extends SnykLib implements IExtension {
       new ModuleVulnerabilityCountProvider(this.ossService, npmModuleInfoFetchService),
       configuration,
       Logger,
+      vsCodeWorkspace,
     );
     await this.advisorScoreDisposable.activate();
 

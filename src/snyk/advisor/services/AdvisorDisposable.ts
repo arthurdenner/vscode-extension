@@ -7,6 +7,7 @@ import { getModules, getSupportedLanguage, isValidModuleName } from '../../commo
 import { ThemeColorAdapter } from '../../common/vscode/theme';
 import { Disposable, TextEditor } from '../../common/vscode/types';
 import { IVSCodeWindow } from '../../common/vscode/window';
+import { IVSCodeWorkspace } from '../../common/vscode/workspace';
 import { ModuleVulnerabilityCountProvider } from '../../snykOss/services/vulnerabilityCount/vulnerabilityCountProvider';
 import { AdvisorScore } from '../advisorTypes';
 import EditorDecorator from '../editor/editorDecorator';
@@ -26,6 +27,7 @@ export class AdvisorScoreDisposable implements Disposable {
     private readonly vulnerabilityCountProvider: ModuleVulnerabilityCountProvider,
     private readonly configuration: IConfiguration,
     private readonly logger: ILog,
+    private readonly workspace: IVSCodeWorkspace,
   ) {
     this.editorDecorator = new EditorDecorator(window, languages, new ThemeColorAdapter(), this.configuration);
   }
@@ -42,16 +44,29 @@ export class AdvisorScoreDisposable implements Disposable {
         return false;
       }
 
-      const modules = getModules(fileName, this.activeEditor.document.getText(), supportedLanguage).filter(
+      let modules = getModules(fileName, this.activeEditor.document.getText(), supportedLanguage).filter(
         isValidModuleName,
       );
 
-      const scores = await this.advisorService.getScores(modules);
+      let scores = await this.advisorService.getScores(modules);
       this.processScores(scores, modules, fileName);
       this.disposables.push(
-        // TODO: get scores on save file?
-        this.window.onDidChangeActiveTextEditor(ev => {
+        this.workspace.onDidChangeTextDocument(ev => {
+          if (ev?.contentChanges.length) {
+            this.editorDecorator.resetDecorations(fileName);
+            modules = getModules(fileName, ev.document.getText(), supportedLanguage).filter(isValidModuleName);
+            this.processScores(scores, modules, fileName);
+          }
+        }),
+        this.window.onDidChangeActiveTextEditor(async ev => {
           if (ev) {
+            if (this.activeEditor) {
+              modules = getModules(fileName, this.activeEditor.document.getText(), supportedLanguage).filter(
+                isValidModuleName,
+              );
+              scores = await this.advisorService.getScores(modules);
+            }
+
             this.processScores(scores, modules, fileName);
           }
         }),
