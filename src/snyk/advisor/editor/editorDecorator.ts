@@ -36,7 +36,7 @@ export default class EditorDecorator {
       }
 
       const packageScore = scores.find(score => score && score.name === packageName);
-      if (packageScore && packageScore.score < SCORE_THRESHOLD) {
+      if (packageScore && packageScore.score < SCORE_THRESHOLD && packageScore.score > 0) {
         decorations[line] = {
           range: this.languages.createRange(
             line - 1,

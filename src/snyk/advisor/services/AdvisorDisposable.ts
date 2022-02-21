@@ -51,23 +51,26 @@ export class AdvisorScoreDisposable implements Disposable {
       let scores = await this.advisorService.getScores(modules);
       this.processScores(scores, modules, fileName);
       this.disposables.push(
-        this.workspace.onDidChangeTextDocument(ev => {
+        this.workspace.onDidChangeTextDocument(async ev => {
           if (ev?.contentChanges.length) {
             this.editorDecorator.resetDecorations(fileName);
+          }
+          if (!ev.document.isDirty && getSupportedLanguage(ev.document.fileName, ev.document.languageId)) {
             modules = getModules(fileName, ev.document.getText(), supportedLanguage).filter(isValidModuleName);
+            if (modules.length !== scores.length) {
+              scores = await this.advisorService.getScores(modules);
+            }
+
             this.processScores(scores, modules, fileName);
           }
         }),
         this.window.onDidChangeActiveTextEditor(async ev => {
           if (ev) {
-            if (this.activeEditor) {
-              modules = getModules(fileName, this.activeEditor.document.getText(), supportedLanguage).filter(
-                isValidModuleName,
-              );
+            if (getSupportedLanguage(ev.document.fileName, ev.document.languageId)) {
+              modules = getModules(fileName, ev.document.getText(), supportedLanguage).filter(isValidModuleName);
               scores = await this.advisorService.getScores(modules);
+              this.processScores(scores, modules, fileName);
             }
-
-            this.processScores(scores, modules, fileName);
           }
         }),
       );

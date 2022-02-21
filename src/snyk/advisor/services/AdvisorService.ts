@@ -11,6 +11,7 @@ export default class AdvisorService {
   readonly scanFinished$ = new Subject<void>();
   private _vulnerabilities: ModuleVulnerabilityCount[];
   private readonly api = `/unstable/advisor/scores/npm-package`;
+  private memPackages: string[] = [];
 
   get vulnerabilities(): ModuleVulnerabilityCount[] {
     return this._vulnerabilities;
@@ -26,15 +27,30 @@ export default class AdvisorService {
   public async getScores(modules: ImportedModule[]): Promise<AdvisorScore[]> {
     const scores: AdvisorScore[] = [];
     try {
-      const res: AxiosResponse = await this.advisorApiClient.post(
-        this.api,
-        modules.map(({ name }) => name),
-      );
+      const packages = modules.map(({ name }) => name);
+      if (!packages.filter(pkg => !this.memPackages.includes(pkg)).length) {
+        return this.scores;
+      }
+      if (packages.length) {
+        const res: AxiosResponse = await this.advisorApiClient.post(
+          this.api,
+          modules.map(({ name }) => name),
+        );
 
-      if (res.data) {
-        this.scores = res.data as AdvisorScore[];
-        this.scanFinished$.next();
-        return res.data as AdvisorScore[];
+        if (res.data) {
+          this.scores = res.data as AdvisorScore[];
+          this.memPackages = this.scores.map(advisorScore => {
+            if (!advisorScore) {
+              return '';
+            }
+            if (!advisorScore.name) {
+              return '';
+            }
+            return advisorScore.name;
+          });
+          this.scanFinished$.next();
+          return res.data as AdvisorScore[];
+        }
       }
     } catch (err) {
       if (err instanceof Error) {
