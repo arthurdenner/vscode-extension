@@ -4,6 +4,7 @@ import { HtmlParser } from '../../snykOss/services/vulnerabilityCount/parsers/ht
 import { ModuleParser } from '../../snykOss/services/vulnerabilityCount/parsers/moduleParser';
 import { PackageJsonParser } from '../../snykOss/services/vulnerabilityCount/parsers/packageJsonParser';
 import nativeModules from '../constants/nativeModules';
+import { ILog } from '../logger/interfaces';
 import { ImportedModule, Language } from '../types';
 import {
   HTML,
@@ -17,11 +18,11 @@ import {
   TYPESCRIPT_REACT,
 } from './languageConsts';
 
-export function getInstance(language: Language): ModuleParser | undefined {
+export function getInstance(language: Language, logger: ILog): ModuleParser | undefined {
   if ([Language.TypeScript, Language.JavaScript].includes(language)) {
     return new BabelParser();
   } else if (language === Language.PJSON) {
-    return new PackageJsonParser();
+    return new PackageJsonParser(logger);
   } else if (language === Language.HTML) {
     return new HtmlParser();
   }
@@ -29,8 +30,8 @@ export function getInstance(language: Language): ModuleParser | undefined {
   return undefined;
 }
 
-export function getModules(fileName: string, source: string, language: Language): ImportedModule[] {
-  const parser = getInstance(language);
+export function getModules(fileName: string, source: string, language: Language, logger: ILog): ImportedModule[] {
+  const parser = getInstance(language, logger);
   if (!parser) {
     return [];
   }

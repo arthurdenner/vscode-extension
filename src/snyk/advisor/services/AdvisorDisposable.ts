@@ -44,7 +44,7 @@ export class AdvisorScoreDisposable implements Disposable {
         return false;
       }
 
-      let modules = getModules(fileName, this.activeEditor.document.getText(), supportedLanguage).filter(
+      let modules = getModules(fileName, this.activeEditor.document.getText(), supportedLanguage, this.logger).filter(
         isValidModuleName,
       );
 
@@ -56,7 +56,9 @@ export class AdvisorScoreDisposable implements Disposable {
             this.editorDecorator.resetDecorations(fileName);
           }
           if (!ev.document.isDirty && getSupportedLanguage(ev.document.fileName, ev.document.languageId)) {
-            modules = getModules(fileName, ev.document.getText(), supportedLanguage).filter(isValidModuleName);
+            modules = getModules(fileName, ev.document.getText(), supportedLanguage, this.logger).filter(
+              isValidModuleName,
+            );
             if (modules.length !== scores.length) {
               scores = await this.advisorService.getScores(modules);
             }
@@ -67,7 +69,9 @@ export class AdvisorScoreDisposable implements Disposable {
         this.window.onDidChangeActiveTextEditor(async ev => {
           if (ev) {
             if (getSupportedLanguage(ev.document.fileName, ev.document.languageId)) {
-              modules = getModules(fileName, ev.document.getText(), supportedLanguage).filter(isValidModuleName);
+              modules = getModules(fileName, ev.document.getText(), supportedLanguage, this.logger).filter(
+                isValidModuleName,
+              );
               scores = await this.advisorService.getScores(modules);
               this.processScores(scores, modules, fileName);
             }
