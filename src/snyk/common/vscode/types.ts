@@ -30,3 +30,4 @@ export type ThemableDecorationInstanceRenderOptions = vscode.ThemableDecorationI
 export type CodeActionProviderMetadata = vscode.CodeActionProviderMetadata;
 export type LineDecorations = DecorationOptions[];
 export type ExtensionContext = vscode.ExtensionContext;
+export type WebviewOptions = vscode.WebviewOptions;
