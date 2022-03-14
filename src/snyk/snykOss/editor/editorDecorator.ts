@@ -1,5 +1,5 @@
 import _ from 'lodash';
-import { getRenderOptions, updateDecorations } from '../../common/vscode/editorDecorator';
+import { getRenderOptions, updateDecorations } from '../../common/editor/editorDecorator';
 import { IVSCodeLanguages } from '../../common/vscode/languages';
 import { IThemeColorAdapter } from '../../common/vscode/theme';
 import { DecorationOptions, TextEditorDecorationType } from '../../common/vscode/types';

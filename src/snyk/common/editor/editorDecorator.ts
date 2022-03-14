@@ -1,6 +1,7 @@
-import { IThemeColorAdapter } from './theme';
-import { LineDecorations, TextEditorDecorationType, ThemableDecorationInstanceRenderOptions } from './types';
-import { IVSCodeWindow } from './window';
+import { IThemeColorAdapter } from '../vscode/theme';
+import { TextEditorDecorationType, ThemableDecorationInstanceRenderOptions } from '../vscode/types';
+import { IVSCodeWindow } from '../vscode/window';
+import { LineDecorations } from './types';
 
 export function updateDecorations(
   window: IVSCodeWindow,

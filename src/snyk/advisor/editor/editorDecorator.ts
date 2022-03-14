@@ -1,5 +1,4 @@
-import { IConfiguration } from '../../common/configuration/configuration';
-import { getRenderOptions, updateDecorations } from '../../common/vscode/editorDecorator';
+import { getRenderOptions, updateDecorations } from '../../common/editor/editorDecorator';
 import { HoverAdapter } from '../../common/vscode/hover';
 import { IVSCodeLanguages } from '../../common/vscode/languages';
 import { getMarkdownString } from '../../common/vscode/markdownString';
@@ -7,9 +6,11 @@ import { IThemeColorAdapter } from '../../common/vscode/theme';
 import { DecorationOptions, Hover, TextEditorDecorationType } from '../../common/vscode/types';
 import { IVSCodeWindow } from '../../common/vscode/window';
 import { AdvisorScore } from '../advisorTypes';
+import { messages } from '../messages';
+import { IAdvisorApiClient } from '../services/advisorApiClient';
 
 type LineDecorations = DecorationOptions[]; // array index is a line number
-const SCORE_PREFIX = 'Advisor Score';
+const { SCORE_PREFIX } = messages;
 const SCORE_THRESHOLD = 0.7;
 
 export default class EditorDecorator {
@@ -21,7 +22,7 @@ export default class EditorDecorator {
     private readonly window: IVSCodeWindow,
     private readonly languages: IVSCodeLanguages,
     private readonly themeColorAdapter: IThemeColorAdapter,
-    private readonly configuration: IConfiguration,
+    private readonly advisorApiClient: IAdvisorApiClient,
   ) {
     this.decorationType = this.window.createTextEditorDecorationType({
       after: { margin: '0 0 0 1rem' },
@@ -73,7 +74,7 @@ export default class EditorDecorator {
       hoverMessageMarkdown.appendMarkdown('\n');
     });
     hoverMessageMarkdown.appendMarkdown(
-      `[More Details](${this.configuration.getAdvisorUrl('npm-package')}/${score.name})`,
+      `[More Details](${this.advisorApiClient.getAdvisorUrl('npm-package')}/${score.name})`,
     );
 
     return hoverMessage;

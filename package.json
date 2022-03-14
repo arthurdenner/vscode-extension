@@ -352,7 +352,7 @@
     "watch-all": "concurrently --kill-others 'npm run watch' 'npm run watch-resources'",
     "pretest": "tsc -p ./",
     "test:unit": "npm run build && mocha --ui tdd -c 'out/test/unit/**/*.test.js'",
-    "test:unit:watch": "mocha --ui tdd -w -c 'out/test/unit/**/*.test.js'",
+    "test:unit:watch": "npm run build && mocha --ui tdd -w -c 'out/test/unit/**/*.test.js'",
     "test:integration": "node ./out/test/integration/runTest.js",
     "lint": "npx eslint \"src/**/*.ts\"",
     "lint:fix": "npx eslint --fix \"src/**/*.ts\"",

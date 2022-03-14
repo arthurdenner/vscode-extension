@@ -1,6 +1,6 @@
-import { AdvisorApiClient, IAdvisorApiClient } from '../../advisor/services/AdvisorApiClient';
-import { AdvisorScoreDisposable } from '../../advisor/services/AdvisorDisposable';
-import AdvisorService from '../../advisor/services/AdvisorService';
+import { AdvisorApiClient, IAdvisorApiClient } from '../../advisor/services/advisorApiClient';
+import { AdvisorScoreDisposable } from '../../advisor/services/advisorDisposable';
+import AdvisorService from '../../advisor/services/advisorService';
 import { CliDownloadService } from '../../cli/services/cliDownloadService';
 import { IAnalytics } from '../../common/analytics/itly';
 import { ISnykApiClient, SnykApiClient } from '../../common/api/apiСlient';

@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
-import { AdvisorScoreDisposable } from './advisor/services/AdvisorDisposable';
-import AdvisorService from './advisor/services/AdvisorService';
+import { AdvisorScoreDisposable } from './advisor/services/advisorDisposable';
+import AdvisorService from './advisor/services/advisorService';
 import { IExtension } from './base/modules/interfaces';
 import SnykLib from './base/modules/snykLib';
 import { AuthenticationService } from './base/services/authenticationService';
@@ -280,10 +280,9 @@ class SnykExtension extends SnykLib implements IExtension {
       vsCodeWindow,
       vsCodeLanguages,
       this.advisorService,
-      new ModuleVulnerabilityCountProvider(this.ossService, npmModuleInfoFetchService),
-      configuration,
       Logger,
       vsCodeWorkspace,
+      this.advisorApiClient,
     );
     await this.advisorScoreDisposable.activate();
 

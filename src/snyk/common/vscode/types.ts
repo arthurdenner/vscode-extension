@@ -28,6 +28,6 @@ export type DecorationOptions = vscode.DecorationOptions;
 export type ThemeColor = vscode.ThemeColor;
 export type ThemableDecorationInstanceRenderOptions = vscode.ThemableDecorationInstanceRenderOptions;
 export type CodeActionProviderMetadata = vscode.CodeActionProviderMetadata;
-export type LineDecorations = DecorationOptions[];
 export type ExtensionContext = vscode.ExtensionContext;
 export type WebviewOptions = vscode.WebviewOptions;
+export type TextDocumentChangeEvent = vscode.TextDocumentChangeEvent;

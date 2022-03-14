@@ -9,7 +9,6 @@ import { ErrorHandler } from '../../common/error/errorHandler';
 import { ExperimentKey } from '../../common/experiment/services/experimentService';
 import { Logger } from '../../common/logger/logger';
 import { vsCodeWorkspace } from '../../common/vscode/workspace';
-import { OssResult } from '../../snykOss/ossResult';
 import BaseSnykModule from './baseSnykModule';
 import { ISnykLib } from './interfaces';
 
@@ -142,11 +141,7 @@ export default class SnykLib extends BaseSnykModule implements ISnykLib {
 
     try {
       const oldResult = this.ossService.getResult();
-      const result: OssResult = await this.ossService.test(manual, reportTriggeredEvent);
-
-      if (result instanceof CliError) {
-        return;
-      }
+      await this.ossService.test(manual, reportTriggeredEvent);
 
       if (oldResult) {
         await this.ossService.showBackgroundNotification(oldResult);

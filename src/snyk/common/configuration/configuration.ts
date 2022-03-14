@@ -1,7 +1,6 @@
 import _ from 'lodash';
 import path from 'path';
 import { URL } from 'url';
-import { AdvisorRegistry } from '../../advisor/advisorTypes';
 import { IDE_NAME_SHORT } from '../constants/general';
 import {
   ADVANCED_ADDITIONAL_PARAMETERS_SETTING,
@@ -74,8 +73,6 @@ export interface IConfiguration {
   getPreviewFeatures(): PreviewFeatures;
 
   severityFilter: SeverityFilter;
-
-  getAdvisorUrl(registry: AdvisorRegistry): string;
 }
 
 export class Configuration implements IConfiguration {
@@ -85,7 +82,6 @@ export class Configuration implements IConfiguration {
   private readonly defaultOssApiEndpoint = `${this.defaultAuthHost}/api/v1`;
   private readonly defaultBaseApiHost = 'https://api.snyk.io';
   private readonly devBaseApiHost = 'https://api.dev.snyk.io';
-  private readonly advisorBaseUrl = 'https://snyk.io/advisor';
 
   constructor(private processEnv: NodeJS.ProcessEnv = process.env, private workspace: IVSCodeWorkspace) {}
 
@@ -343,9 +339,5 @@ export class Configuration implements IConfiguration {
 
   private removeTrailingSlash(str: string) {
     return str.replace(/\/$/, '');
-  }
-
-  getAdvisorUrl(registry: AdvisorRegistry): string {
-    return `${this.advisorBaseUrl}/${registry}`;
   }
 }
